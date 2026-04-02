@@ -1324,6 +1324,8 @@ select.filter:focus{outline:none}
       <button class="btn btn-sm" onclick="togglePayPanel()" id="pay-panel-btn">$ Log payment</button>
       <button class="btn btn-sm" onclick="openQuickEdit()" title="Edit address, contact, dates">✎ Quick edit</button>
       <button class="btn btn-sm" onclick="openTfEdit()" title="Edit transfer fees">⇄ Transfer fees</button>
+      <button class="btn btn-sm" onclick="addPackagesToRequest()" title="Add new packages to this request (same unit, same transaction)">＋ Add packages</button>
+      <button class="btn btn-sm" onclick="newTransactionReq()" title="New transaction for same unit — different buyer/seller">⟳ New transaction</button>
       <button class="btn btn-sm" onclick="copyReq()" title="Duplicate this request (C)">⎘ Copy</button>
       <button class="btn btn-sm" onclick="editReq()" title="Full edit — all fields (E)">Edit all</button>
       <button class="btn btn-sm btn-danger" onclick="delReq()">Delete</button>
@@ -1856,7 +1858,7 @@ function cardHTML(r) {
   return `<div class="req-card-v2" onclick="openOv('${r.id}')">
     <div class="req-card-v2-main">
       <div class="req-card-v2-left">
-        <div class="req-card-v2-address">${hasRush ? '⚡ ' : ''}${r.address}</div>
+        <div class="req-card-v2-address">${hasRush ? '⚡ ' : ''}${r.address}${r.transaction > 1 ? ` <span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:var(--blue-bg);color:var(--blue)">Tx ${r.transaction}</span>` : ''}</div>
         <div class="req-card-v2-assoc">${assoc ? assoc.name : '<span style="color:var(--border2)">No association</span>'}${tfPending ? ' · <span style="color:var(--amber);font-weight:600;font-size:11px">Transfer fees pending</span>' : ''}${subLine ? `<span style="color:var(--text3);font-size:11px;margin-left:6px">· ${subLine}</span>` : ''}</div>
         ${rfrFlagsHtml}
       </div>
@@ -1926,16 +1928,15 @@ function renderDash(q = '', sf = '') {
 
   // Sort active: 1-day rush first, 3-day rush second, then overdue, then by closing date
   const active = list.filter(r => r.status !== 'done').sort((a,b) => {
-    const rushRank = r => {
-      const vals = Object.values(r.rush||{});
+    const rushRank = req => {
+      const vals = Object.values(req.rush||{});
       if (vals.includes('1day')) return 0;
       if (vals.includes('3day')) return 1;
-      // Check if overdue
       const hasOverdue = ['closing','pal','lender','individual'].some(pkg => {
-        if (!r.packages?.[pkg]) return false;
-        const pd = r.payments?.[pkg]?.date || r.paydate;
+        if (!req.packages?.[pkg]) return false;
+        const pd = req.payments?.[pkg]?.date || req.paydate;
         if (!pd) return false;
-        const limit = (r.rush?.[pkg]==='1day')?1:(r.rush?.[pkg]==='3day')?3:10;
+        const limit = (req.rush?.[pkg]==='1day')?1:(req.rush?.[pkg]==='3day')?3:10;
         return businessDaysSince(pd) >= limit;
       });
       if (hasOverdue) return 2;
@@ -2273,6 +2274,8 @@ function openOv(id) {
 
   const metas = [
     assoc ? ['Association', assoc.name] : null,
+    r.transaction > 1 ? ['Transaction', `#${r.transaction} for this unit`] : null,
+    r.linkedTo ? ['Linked to', `Previous request — click to view`] : null,
     ['Type', {attorney:'Attorney',lender:'Lender',both:'Atty + Lender',homeowner:'Homeowner',other:'Other'}[r.ctype] || r.ctype],
     r.closing ? ['Closing date', r.closing] : null,
     r.completedDate ? ['Completed', r.completedDate] : null,
@@ -4600,6 +4603,75 @@ async function saveQuickEdit() {
   openOv(cur);
   renderDash();
   await saveReqSync(r);
+}
+
+// ── Add packages to existing request ──
+// Use when: same unit, same transaction, new packages added after original was completed
+// e.g. lender Q done first, then attorney requests closing+PAL for same unit
+function addPackagesToRequest() {
+  const r = R.find(x => x.id === cur);
+  if (!r) return;
+  const existing = [];
+  if (r.packages?.closing) existing.push('Closing');
+  if (r.packages?.pal) existing.push('PAL');
+  if (r.packages?.lender) existing.push('Lender Q');
+  if (r.packages?.individual) existing.push('Individual');
+  const msg = `Add new packages to this request?\n\nCurrent packages: ${existing.join(', ') || 'none'}\n\nThis will reopen the request to "In progress" so you can add the new packages via Edit All. All existing checklist steps, payments and contacts are kept.\n\nContinue?`;
+  if (!confirm(msg)) return;
+  // Reopen the request
+  r.status = 'inprogress';
+  r.completedDate = '';
+  if (!r.activityLog) r.activityLog = [];
+  r.activityLog.push({ ts: new Date().toISOString(), action: `Reopened — adding new packages to existing request` });
+  // Update in array
+  const idx = R.findIndex(x => x.id === cur);
+  if (idx >= 0) R[idx] = r;
+  renderDash(); updateMetrics();
+  saveReqSync(r);
+  closeOverlay();
+  // Open edit form so they can add the new packages
+  setTimeout(() => editReq(), 300);
+  showToast('Request reopened — add new packages and save');
+}
+
+// ── New transaction for same unit ──
+// Use when: same address, but a completely new sale (different buyer/seller)
+// e.g. quick flip — Buyer 1 buys, sells to Buyer 2 — two separate full transactions
+function newTransactionReq() {
+  const r = R.find(x => x.id === cur);
+  if (!r) return;
+  // Count existing transactions for this address
+  const sameAddr = R.filter(x => x.address === r.address);
+  const txNum = (r.transaction || 1);
+  const newTxNum = sameAddr.length + 1;
+  const msg = `Start a new transaction for ${r.address}?\n\nThis creates a fresh request for the same unit with a new buyer/seller.\nIt will be labelled "Transaction ${newTxNum}" to distinguish it from the original.\n\nAll contact details, payments and checklist will be blank — only the address and association carry over.\n\nContinue?`;
+  if (!confirm(msg)) return;
+  const newReq = {
+    id: Date.now() + '',
+    address: r.address,
+    assocId: r.assocId,
+    contact: '', email: '', email2: '',
+    contacts: { attorney:{name:'',email1:'',email2:''}, lender:{name:'',email1:'',email2:''}, buyer:{name:'',email1:'',email2:''}, seller:{name:'',email1:'',email2:''} },
+    ctype: r.ctype || 'attorney',
+    inquirydate: '', closing: '', completedDate: '',
+    packages: { closing: false, pal: false, lender: false, individual: false },
+    rush: { closing: 'none', pal: 'none', lender: 'none', individual: 'none' },
+    payments: { closing:{amount:'',date:''}, pal:{amount:'',date:''}, lender:{amount:'',date:'',extraPages:'0'}, individual:{amount:'',date:''} },
+    transferFees: { buyer:{amount:'',date:''}, seller:{amount:'',date:''} },
+    status: 'waiting',
+    notes: `Transaction ${newTxNum} for this unit. Previous transaction: ${r.address} (ID: ${r.id})`,
+    checks: {}, stepNotes: {},
+    activityLog: [{ ts: new Date().toISOString(), action: `New transaction ${newTxNum} created — linked to previous request` }],
+    created: new Date().toISOString(),
+    transaction: newTxNum,
+    linkedTo: r.id,
+  };
+  R.unshift(newReq);
+  closeOverlay();
+  renderDash(); updateMetrics();
+  saveReqSync(newReq);
+  setTimeout(() => openOv(newReq.id), 400);
+  showToast(`Transaction ${newTxNum} created for ${r.address}`);
 }
 
 // ── Copy request ──
