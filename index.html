@@ -1838,20 +1838,23 @@ function cardHTML(r) {
 
   const tfPending = r.status === 'done' && (!(r.transferFees?.buyer?.amount) || !(r.transferFees?.seller?.amount));
 
-  // RFR / interview pending flags for card
+  // RFR / interview pending flags for card — only show after at least one payment received
   const rfrFlags = [];
-  if (assoc?.rfr && r.packages?.pal && !r.checks?.['pal-rfr-submit']) {
-    const daysToClose = r.closing ? Math.floor((new Date(r.closing) - new Date()) / 86400000) : 999;
-    const urgent = daysToClose < 30;
-    rfrFlags.push(`<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:${urgent?'var(--red)':'var(--purple)'}">⊞ RFR${urgent?' URGENT':''}</span>`);
-  } else if (assoc?.rfr && r.packages?.pal && !r.checks?.['pal-rfr-recv']) {
-    rfrFlags.push(`<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple)">⊞ awaiting waiver</span>`);
-  }
-  if (assoc?.interview && r.packages?.pal && !r.checks?.['pal-int-done']) {
-    rfrFlags.push(`<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple)">👤 interview${r.checks?.['pal-int-sched']?' scheduled':' needed'}</span>`);
-  }
-  if (assoc?.boardApproval && r.packages?.pal && !r.checks?.['pal-board']) {
-    rfrFlags.push(`<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple)">📋 board approval</span>`);
+  const anyPaymentCard = ['closing','pal','lender','individual'].some(k => r.payments?.[k]?.date);
+  if (anyPaymentCard) {
+    if (assoc?.rfr && r.packages?.pal && !r.checks?.['pal-rfr-submit']) {
+      const daysToClose = r.closing ? Math.floor((new Date(r.closing) - new Date()) / 86400000) : 999;
+      const urgent = daysToClose < 30;
+      rfrFlags.push(`<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:${urgent?'var(--red)':'var(--purple)'}">⊞ RFR${urgent?' URGENT':''}</span>`);
+    } else if (assoc?.rfr && r.packages?.pal && !r.checks?.['pal-rfr-recv']) {
+      rfrFlags.push(`<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple)">⊞ awaiting waiver</span>`);
+    }
+    if (assoc?.interview && r.packages?.pal && !r.checks?.['pal-int-done']) {
+      rfrFlags.push(`<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple)">👤 interview${r.checks?.['pal-int-sched']?' scheduled':' needed'}</span>`);
+    }
+    if (assoc?.boardApproval && r.packages?.pal && !r.checks?.['pal-board']) {
+      rfrFlags.push(`<span style="font-size:10px;font-weight:700;padding:1px 6px;border-radius:3px;background:var(--purple-bg);color:var(--purple)">📋 board approval</span>`);
+    }
   }
   const rfrFlagsHtml = rfrFlags.length && r.status !== 'done'
     ? `<div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px">${rfrFlags.join('')}</div>` : '';
@@ -4798,40 +4801,42 @@ function renderAlertBanner() {
     const assoc = A.find(a => a.id === r.assocId) || {};
 
     // ── RFR / Interview / Board pending checks ──
-    // These run regardless of payment — you need to act on these early
-    if (assoc.rfr && r.packages?.pal) {
-      const submitted = r.checks?.['pal-rfr-submit'];
-      const received  = r.checks?.['pal-rfr-recv'];
-      if (!submitted) {
-        // Calculate urgency from closing date
-        const daysToClose = r.closing ? Math.floor((new Date(r.closing) - new Date()) / 86400000) : 999;
-        const level = daysToClose < 15 ? 'urgent' : daysToClose < 30 ? 'warn' : 'rfr';
-        alerts.push({ r, pkg: 'rfr', rush: 'none', bDays: 0, bDaysLeft: daysToClose, level,
-          msg: `${r.address} — ⊞ RFR waiver NOT submitted to board yet${r.closing ? ` (${daysToClose}d to closing)` : ''}`,
-          meta: 'Must submit 30 days before closing' });
-      } else if (!received) {
-        alerts.push({ r, pkg: 'rfr', rush: 'none', bDays: 0, bDaysLeft: 0, level: 'warn',
-          msg: `${r.address} — ⊞ RFR submitted — waiting for board written confirmation`,
-          meta: 'Do not release PAL until written waiver received' });
+    // Only fire if at least one package has been paid — confirms sale is proceeding
+    const anyPayment = ['closing','pal','lender','individual'].some(k => r.payments?.[k]?.date);
+    if (anyPayment) {
+      if (assoc.rfr && r.packages?.pal) {
+        const submitted = r.checks?.['pal-rfr-submit'];
+        const received  = r.checks?.['pal-rfr-recv'];
+        if (!submitted) {
+          const daysToClose = r.closing ? Math.floor((new Date(r.closing) - new Date()) / 86400000) : 999;
+          const level = daysToClose < 15 ? 'urgent' : daysToClose < 30 ? 'warn' : 'rfr';
+          alerts.push({ r, pkg: 'rfr', rush: 'none', bDays: 0, bDaysLeft: daysToClose, level,
+            msg: `${r.address} — ⊞ RFR waiver NOT submitted to board yet${r.closing ? ` (${daysToClose}d to closing)` : ''}`,
+            meta: 'Must submit 30 days before closing' });
+        } else if (!received) {
+          alerts.push({ r, pkg: 'rfr', rush: 'none', bDays: 0, bDaysLeft: 0, level: 'warn',
+            msg: `${r.address} — ⊞ RFR submitted — waiting for board written confirmation`,
+            meta: 'Do not release PAL until written waiver received' });
+        }
       }
-    }
-    if (assoc.interview && r.packages?.pal) {
-      const scheduled = r.checks?.['pal-int-sched'];
-      const done      = r.checks?.['pal-int-done'];
-      if (!scheduled) {
-        alerts.push({ r, pkg: 'interview', rush: 'none', bDays: 0, bDaysLeft: 0, level: 'warn',
-          msg: `${r.address} — 👤 Buyer interview NOT yet scheduled`,
-          meta: 'Schedule with board early — do not leave to last minute' });
-      } else if (!done) {
-        alerts.push({ r, pkg: 'interview', rush: 'none', bDays: 0, bDaysLeft: 0, level: 'info',
-          msg: `${r.address} — 👤 Interview scheduled — confirm completion when done`,
-          meta: 'PAL cannot be released until interview confirmed complete' });
+      if (assoc.interview && r.packages?.pal) {
+        const scheduled = r.checks?.['pal-int-sched'];
+        const done      = r.checks?.['pal-int-done'];
+        if (!scheduled) {
+          alerts.push({ r, pkg: 'interview', rush: 'none', bDays: 0, bDaysLeft: 0, level: 'warn',
+            msg: `${r.address} — 👤 Buyer interview NOT yet scheduled`,
+            meta: 'Schedule with board early — do not leave to last minute' });
+        } else if (!done) {
+          alerts.push({ r, pkg: 'interview', rush: 'none', bDays: 0, bDaysLeft: 0, level: 'info',
+            msg: `${r.address} — 👤 Interview scheduled — confirm completion when done`,
+            meta: 'PAL cannot be released until interview confirmed complete' });
+        }
       }
-    }
-    if (assoc.boardApproval && r.packages?.pal && !r.checks?.['pal-board']) {
-      alerts.push({ r, pkg: 'board', rush: 'none', bDays: 0, bDaysLeft: 0, level: 'warn',
-        msg: `${r.address} — 📋 Board approval NOT yet obtained`,
-        meta: 'Required before PAL can be released' });
+      if (assoc.boardApproval && r.packages?.pal && !r.checks?.['pal-board']) {
+        alerts.push({ r, pkg: 'board', rush: 'none', bDays: 0, bDaysLeft: 0, level: 'warn',
+          msg: `${r.address} — 📋 Board approval NOT yet obtained`,
+          meta: 'Required before PAL can be released' });
+      }
     }
 
     // ── Deadline alerts (payment-based) ──
