@@ -1814,9 +1814,9 @@ function cardHTML(r) {
     const chips = [];
     ['closing','pal','lender','individual'].forEach(pkg => {
       if (!r.packages?.[pkg]) return;
-      const payDate = r.payments?.[pkg]?.date || r.paydate;
+      // Only show chip if THIS package has been paid
+      const payDate = r.payments?.[pkg]?.date;
       if (!payDate) return;
-      // Skip if delivery step already ticked
       const doneStep = PKG_DONE_STEP[pkg];
       if (doneStep && r.checks?.[doneStep]) return;
       const rush = r.rush?.[pkg] || 'none';
@@ -4837,8 +4837,9 @@ function renderAlertBanner() {
     // ── Deadline alerts (payment-based) ──
     ['closing','pal','lender','individual'].forEach(pkg => {
       if (!r.packages?.[pkg]) return;
-      const payDate = r.payments?.[pkg]?.date || r.paydate;
-      if (!payDate) return;
+      // Only alert if THIS package has been paid — never fall back to global paydate
+      const payDate = r.payments?.[pkg]?.date;
+      if (!payDate) return; // no payment for this package = no alert
       const doneStep = PKG_DONE_STEP[pkg];
       if (doneStep && r.checks?.[doneStep]) return;
       const rush = r.rush?.[pkg] || 'none';
