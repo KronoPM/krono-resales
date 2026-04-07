@@ -1987,8 +1987,10 @@ function renderDash(q = '', sf = '') {
 function clearDashSearch() {
   const inp = document.getElementById('dash-search');
   if (inp) { inp.value = ''; renderDash('', currentFilter); }
-  document.getElementById('search-clear-btn').style.display = 'none';
-  document.getElementById('search-suggestions').style.display = 'none';
+  const cb = document.getElementById('search-clear-btn');
+  if (cb) cb.style.display = 'none';
+  const sb = document.getElementById('search-suggestions');
+  if (sb) sb.style.display = 'none';
 }
 
 function updateSearchSuggestions(q) {
@@ -1998,42 +2000,46 @@ function updateSearchSuggestions(q) {
   if (!sugBox) return;
   if (!q || q.length < 2) { sugBox.style.display = 'none'; return; }
   const lq = q.toLowerCase();
-  // Build suggestion candidates from live data
-  const suggestions = new Set();
+  const seen = new Set(); const unique = [];
   R.forEach(r => {
-    if ((r.address||'').toLowerCase().includes(lq)) suggestions.add({ label: r.address, type: 'address' });
-    if ((r.contact||'').toLowerCase().includes(lq)) suggestions.add({ label: r.contact, type: 'contact' });
-    const assocName = (A.find(a=>a.id===r.assocId)||{}).name||'';
-    if (assocName.toLowerCase().includes(lq)) suggestions.add({ label: assocName, type: 'association' });
-    const atty = r.contacts?.attorney?.name || '';
-    if (atty && atty.toLowerCase().includes(lq)) suggestions.add({ label: atty, type: 'attorney' });
+    const candidates = [
+      { label: r.address, type: 'address' },
+      r.contact ? { label: r.contact, type: 'contact' } : null,
+      r.contacts?.attorney?.name ? { label: r.contacts.attorney.name, type: 'attorney' } : null,
+      (A.find(a=>a.id===r.assocId)||{}).name ? { label: (A.find(a=>a.id===r.assocId)||{}).name, type: 'association' } : null,
+    ].filter(Boolean);
+    candidates.forEach(c => {
+      if (c.label && c.label.toLowerCase().includes(lq) && !seen.has(c.label)) {
+        seen.add(c.label); unique.push(c);
+      }
+    });
   });
-  // Deduplicate by label
-  const seen = new Set();
-  const unique = [];
-  suggestions.forEach(s => { if (s && s.label && !seen.has(s.label)) { seen.add(s.label); unique.push(s); } });
   if (!unique.length) { sugBox.style.display = 'none'; return; }
   sugBox.style.display = 'block';
-  sugBox.innerHTML = unique.slice(0,8).map(s =>
-    `<div onclick="selectSearchSuggestion('${s.label.replace(/'/g,"\\'")}','${s.type}')" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
-      <span style="font-size:10px;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:3px;white-space:nowrap">${s.type}</span>
-      <span>${s.label}</span>
-    </div>`).join('');
+  sugBox.innerHTML = unique.slice(0,8).map(s => {
+    const div = document.createElement('div');
+    div.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px';
+    div.dataset.val = s.label;
+    div.innerHTML = `<span style='font-size:10px;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:3px;white-space:nowrap'>${s.type}</span><span style='margin-left:4px'>${s.label}</span>`;
+    div.addEventListener('mouseover', ()=>div.style.background='var(--surface2)');
+    div.addEventListener('mouseout', ()=>div.style.background='');
+    div.addEventListener('click', ()=>selectSearchSuggestion(s.label));
+    return div.outerHTML;
+  }).join('');
 }
 
-function selectSearchSuggestion(value, type) {
+function selectSearchSuggestion(value) {
   const inp = document.getElementById('dash-search');
   if (inp) { inp.value = value; renderDash(value, currentFilter); }
-  document.getElementById('search-clear-btn').style.display = 'block';
-  document.getElementById('search-suggestions').style.display = 'none';
+  const cb = document.getElementById('search-clear-btn');
+  if (cb) cb.style.display = 'block';
+  const sb = document.getElementById('search-suggestions');
+  if (sb) sb.style.display = 'none';
 }
 
-// Close suggestions when clicking outside
 document.addEventListener('click', e => {
   const sug = document.getElementById('search-suggestions');
-  if (sug && !sug.contains(e.target) && e.target.id !== 'dash-search') {
-    sug.style.display = 'none';
-  }
+  if (sug && !sug.contains(e.target) && e.target.id !== 'dash-search') sug.style.display = 'none';
 });
 
 function toggleCompleted() {
@@ -2777,8 +2783,7 @@ function renderRevenue() {
       const recs = paid.filter(r => { const d=new Date(r.created||0); return d>=start&&d<=end; });
       const rev = recs.reduce((s,r)=>s+getTotalPaid(r),0);
       const label = `${start.getMonth()+1}/${start.getDate()}`;
-      const endLabel = `${end.getMonth()+1}/${end.getDate()}`;
-      return { label, endLabel, rev, count: recs.length, recs, start, end };
+      return { label, rev, count: recs.length, recs };
     }).reverse();
     const maxW = Math.max(...weekBuckets.map(b=>b.rev),1);
     document.getElementById('monthly-chart').innerHTML = weekBuckets.map((b,i) =>
@@ -2789,8 +2794,7 @@ function renderRevenue() {
         </div>
         <div class="bar-lbl">${b.label}</div>
       </div>`).join('');
-    document.getElementById('ytd-line-label').innerHTML =
-      `<span style="font-size:11px;color:var(--text3)">Last 12 weeks — click a bar for detail</span>`;
+    document.getElementById('ytd-line-label').innerHTML = '<span style="font-size:11px;color:var(--text3)">Last 12 weeks — click a bar for detail</span>';
     document.getElementById('month-drill').classList.remove('open');
     window.weekBuckets = weekBuckets;
 
@@ -4936,7 +4940,7 @@ function renderAlertBanner() {
 
   if (!alerts.length) { banner.style.display = 'none'; return; }
 
-  // Group alerts by request ID so same unit appears together
+  // Group alerts by request ID — same unit all together
   const levelOrder = { urgent: 0, warn: 1, rfr: 2, info: 3 };
   const grouped = {};
   alerts.forEach(a => {
@@ -4946,8 +4950,6 @@ function renderAlertBanner() {
     const lo = levelOrder[a.level] ?? 3;
     if (lo < grouped[key].worstLevel) grouped[key].worstLevel = lo;
   });
-
-  // Sort groups by worst alert level
   const groups = Object.values(grouped).sort((a,b) => a.worstLevel - b.worstLevel);
 
   const urgentCount = alerts.filter(a=>a.level==='urgent').length;
@@ -4961,9 +4963,8 @@ function renderAlertBanner() {
   if (warnCount)   parts.push(`${warnCount} due soon`);
   if (rfrCount)    parts.push(`${rfrCount} board action`);
   const titleText = `${parts.join(' · ')} — ${unitCount} unit${unitCount!==1?'s':''}`;
-
-  const dotColor = level => level==='urgent' ? 'var(--red)' : level==='warn' ? 'var(--amber)' : level==='rfr' ? 'var(--purple)' : 'var(--blue)';
-  const levelLabel = level => level==='urgent' ? '🔴' : level==='warn' ? '⚠' : level==='rfr' ? '⊞' : 'ℹ';
+  const dotColor = level => level==='urgent'?'var(--red)':level==='warn'?'var(--amber)':level==='rfr'?'var(--purple)':'var(--blue)';
+  const levelIcon = level => level==='urgent'?'🔴':level==='warn'?'⚠':level==='rfr'?'⊞':'ℹ';
 
   banner.style.display = 'block';
   banner.innerHTML = `<div class="alert-banner">
@@ -4973,21 +4974,16 @@ function renderAlertBanner() {
     </div>
     <div class="alert-items open">
       ${groups.map(g => {
-        const worstColor = dotColor(['urgent','warn','rfr','info'][g.worstLevel] || 'info');
-        return `<div class="alert-item alert-item-${['urgent','warn','warn','info'][g.worstLevel]}" onclick="openOv('${g.r.id}')" style="padding:8px 12px">
+        const worstLevel = ['urgent','warn','rfr','info'][g.worstLevel] || 'info';
+        const worstColor = dotColor(worstLevel);
+        return `<div class="alert-item alert-item-${worstLevel==='rfr'?'rfr':worstLevel}" onclick="openOv('${g.r.id}')" style="padding:8px 12px">
           <div class="alert-dot" style="background:${worstColor}"></div>
           <div style="flex:1">
             <div style="font-weight:700;font-size:12.5px;margin-bottom:3px">${g.r.address}</div>
-            ${g.items.map(a=>`<div style="font-size:11.5px;color:var(--text2);margin-bottom:1px">
-              ${levelLabel(a.level)} ${a.msg.replace(g.r.address+' — ','')}
-              <span style="color:${dotColor(a.level)};font-size:10px;margin-left:6px">${a.meta||''}</span>
-            </div>`).join('')}
+            ${g.items.map(a=>`<div style="font-size:11.5px;color:var(--text2);margin-bottom:1px">${levelIcon(a.level)} ${a.msg.replace(g.r.address+' — ','')} <span style="color:${dotColor(a.level)};font-size:10px;margin-left:4px">${a.meta||''}</span></div>`).join('')}
           </div>
         </div>`;
       }).join('')}
-    </div>
-  </div>`;
-      </div>`).join('')}
     </div>
   </div>`;
 }
@@ -5202,11 +5198,9 @@ function renderExecSnapshot() {
 }
 
 // ── Month drill-down ──
-// Called from monthly table rows — looks up requests by month index safely
 function drillFromTable(row) {
   const monthIdx = parseInt(row.dataset.monthIdx);
   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  // Get requests for this month from current paid data
   const year = curYear === 'all' ? null : parseInt(curYear);
   const reqs = R.filter(r => {
     if (getTotalPaid(r) <= 0) return false;
@@ -5217,7 +5211,6 @@ function drillFromTable(row) {
   drillIntoMonth(monthIdx, label, reqs);
 }
 
-// Weekly drill-down
 function drillIntoWeek(weekIdx) {
   const buckets = window.weekBuckets;
   if (!buckets || !buckets[weekIdx]) return;
@@ -5233,9 +5226,7 @@ function drillIntoWeek(weekIdx) {
   const rushCount = b.recs.filter(r=>Object.values(r.rush||{}).some(v=>v&&v!=='none')).length;
   drill.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em">
-        Week of ${b.label} – ${b.endLabel} — ${b.recs.length} request${b.recs.length!==1?'s':''}
-      </div>
+      <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em">Week ${b.label}–${b.endLabel} — ${b.recs.length} request${b.recs.length!==1?'s':''}</div>
       <button class="btn btn-sm" onclick="document.getElementById('month-drill').classList.remove('open');drillMonth=-1">✕ Close</button>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:16px">
@@ -5257,19 +5248,12 @@ function drillIntoWeek(weekIdx) {
       </div>
     </div>
     <table class="art" style="font-size:12px">
-      <thead><tr><th>Address</th><th>Contact</th><th>Packages</th><th>Rush</th><th>Paid</th><th>Status</th></tr></thead>
+      <thead><tr><th>Address</th><th>Packages</th><th>Rush</th><th>Paid</th><th>Status</th></tr></thead>
       <tbody>${b.recs.map(r => {
         const [lbl,cls] = si(r.status);
         const pkgs = [r.packages?.closing?'Closing':null,r.packages?.pal?'PAL':null,r.packages?.lender?'LQ':null].filter(Boolean).join(', ');
         const hasRush = Object.values(r.rush||{}).some(v=>v&&v!=='none');
-        return `<tr class="clickable" onclick="openOv('${r.id}')">
-          <td><strong>${r.address}</strong></td>
-          <td>${r.contact||r.contacts?.attorney?.name||'—'}</td>
-          <td>${pkgs||'—'}</td>
-          <td>${hasRush?`<span style="color:var(--amber);font-weight:600">⚡ rush</span>`:'—'}</td>
-          <td class="money"><strong>${fmt(getTotalPaid(r))}</strong></td>
-          <td><span class="badge ${cls}" style="font-size:10px">${lbl}</span></td>
-        </tr>`;
+        return '<tr class="clickable" onclick="openOv(\'' + r.id + '\')"><td><strong>' + r.address + '</strong></td><td>' + (pkgs||'—') + '</td><td>' + (hasRush?'<span style="color:var(--amber);font-weight:600">⚡ rush</span>':'—') + '</td><td class="money"><strong>' + fmt(getTotalPaid(r)) + '</strong></td><td><span class="badge ' + cls + '" style="font-size:10px">' + lbl + '</span></td></tr>';
       }).join('')}</tbody>
     </table>`;
   setTimeout(() => drill.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
@@ -5277,51 +5261,38 @@ function drillIntoWeek(weekIdx) {
 
 function drillIntoMonth(monthIdx, monthName, requestIds) {
   const drill = document.getElementById('month-drill');
-  // requestIds may be an array of IDs or full request objects depending on caller
   const requests = Array.isArray(requestIds)
     ? requestIds.map(id => typeof id === 'string' ? R.find(r=>r.id===id) : id).filter(Boolean)
     : requestIds;
-
   if (drillMonth === monthIdx) { drill.classList.remove('open'); drillMonth = -1; return; }
   drillMonth = monthIdx;
-  if (!requests.length) { drill.classList.remove('open'); return; }
+  if (!requests || !requests.length) { drill.classList.remove('open'); return; }
   drill.classList.add('open');
-
-  // Calculate totals
-  const totalDoc    = requests.reduce((s,r)=>s+getTotalPaid(r),0);
-  const totalTf     = requests.reduce((s,r)=>s+getTfTotal(r),0);
-  const totalGrand  = totalDoc + totalTf;
-  const closingRev  = requests.reduce((s,r)=>s+parseFloat(r.payments?.closing?.amount||0),0);
-  const palRev      = requests.reduce((s,r)=>s+parseFloat(r.payments?.pal?.amount||0),0);
-  const lenderRev   = requests.reduce((s,r)=>s+parseFloat(r.payments?.lender?.amount||0),0);
-  const rushCount   = requests.filter(r=>Object.values(r.rush||{}).some(v=>v&&v!=='none')).length;
-  const rushRev     = requests.filter(r=>Object.values(r.rush||{}).some(v=>v&&v!=='none')).reduce((s,r)=>s+getTotalPaid(r),0);
-  const completedCount = requests.filter(r=>r.status==='done').length;
-
-  // Weekly breakdown within the month
+  const fmt = n => n > 0 ? '$' + n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : '$0';
+  const totalDoc   = requests.reduce((s,r)=>s+getTotalPaid(r),0);
+  const totalTf    = requests.reduce((s,r)=>s+getTfTotal(r),0);
+  const closingRev = requests.reduce((s,r)=>s+parseFloat(r.payments?.closing?.amount||0),0);
+  const palRev     = requests.reduce((s,r)=>s+parseFloat(r.payments?.pal?.amount||0),0);
+  const lenderRev  = requests.reduce((s,r)=>s+parseFloat(r.payments?.lender?.amount||0),0);
+  const rushCount  = requests.filter(r=>Object.values(r.rush||{}).some(v=>v&&v!=='none')).length;
+  const rushRev    = requests.filter(r=>Object.values(r.rush||{}).some(v=>v&&v!=='none')).reduce((s,r)=>s+getTotalPaid(r),0);
+  const completed  = requests.filter(r=>r.status==='done').length;
   const weekMap = {};
   requests.forEach(r => {
     const d = new Date(r.created||0);
-    const weekNum = Math.ceil(d.getDate()/7);
-    const key = `Week ${weekNum}`;
-    if (!weekMap[key]) weekMap[key] = { count:0, rev:0 };
-    weekMap[key].count++;
-    weekMap[key].rev += getTotalPaid(r);
+    const wk = 'Week ' + Math.ceil(d.getDate()/7);
+    if (!weekMap[wk]) weekMap[wk] = {count:0,rev:0};
+    weekMap[wk].count++; weekMap[wk].rev += getTotalPaid(r);
   });
-
-  const fmt = n => n > 0 ? '$' + n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : '$0';
-
   drill.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em">${monthName} — ${requests.length} request${requests.length!==1?'s':''}</div>
       <button class="btn btn-sm" onclick="document.getElementById('month-drill').classList.remove('open');drillMonth=-1">✕ Close</button>
     </div>
-
-    <!-- Summary cards -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:16px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px">
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px">
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Grand total</div>
-        <div style="font-size:18px;font-weight:700;color:var(--green-mid)">${fmt(totalGrand)}</div>
+        <div style="font-size:18px;font-weight:700;color:var(--green-mid)">${fmt(totalDoc+totalTf)}</div>
       </div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px">
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Doc fees</div>
@@ -5337,53 +5308,24 @@ function drillIntoMonth(monthIdx, monthName, requestIds) {
       </div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px">
         <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Completed</div>
-        <div style="font-size:18px;font-weight:700">${completedCount} / ${requests.length}</div>
+        <div style="font-size:18px;font-weight:700">${completed}/${requests.length}</div>
       </div>
     </div>
-
-    <!-- Package breakdown -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:16px">
-      ${[['Closing', closingRev], ['PAL', palRev], ['Lender Q', lenderRev]].map(([label, rev]) => `
-        <div style="background:var(--surface2);border-radius:var(--r-sm);padding:8px 12px;font-size:12px">
-          <span style="color:var(--text2);font-weight:600">${label}</span>
-          <span style="float:right;font-weight:700">${fmt(rev)}</span>
-        </div>`).join('')}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">
+      ${[['Closing',closingRev],['PAL',palRev],['Lender Q',lenderRev]].map(([l,v])=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:7px 10px;font-size:12px"><span style="color:var(--text2);font-weight:600">${l}</span><span style="float:right;font-weight:700">${fmt(v)}</span></div>`).join('')}
     </div>
-
-    <!-- Weekly breakdown -->
-    ${Object.keys(weekMap).length > 1 ? `
-    <div style="margin-bottom:14px">
-      <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:6px">Weekly breakdown</div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap">
-        ${Object.entries(weekMap).map(([week,data]) => `
-          <div style="background:var(--surface2);border-radius:var(--r-sm);padding:6px 10px;font-size:12px">
-            <span style="color:var(--text2);font-weight:600">${week}</span>
-            <span style="margin-left:8px;font-weight:700">${fmt(data.rev)}</span>
-            <span style="color:var(--text3);margin-left:4px">(${data.count} req)</span>
-          </div>`).join('')}
-      </div>
-    </div>` : ''}
-
-    <!-- Request list -->
+    ${Object.keys(weekMap).length>1?`<div style="margin-bottom:12px"><div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:5px">Weekly breakdown</div><div style="display:flex;gap:6px;flex-wrap:wrap">${Object.entries(weekMap).map(([w,d])=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:5px 10px;font-size:12px"><span style="color:var(--text2);font-weight:600">${w}</span><span style="margin-left:8px;font-weight:700">${fmt(d.rev)}</span><span style="color:var(--text3);margin-left:4px">(${d.count})</span></div>`).join('')}</div></div>`:''}
     <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:6px">All requests</div>
     <table class="art" style="font-size:12px">
       <thead><tr><th>Address</th><th>Contact</th><th>Packages</th><th>Rush</th><th>Paid</th><th>Status</th></tr></thead>
       <tbody>${requests.map(r => {
         const [lbl,cls] = si(r.status);
-        const pkgs = [r.packages?.closing?'Closing':null,r.packages?.pal?'PAL':null,r.packages?.lender?'Lender Q':null,r.packages?.individual?'Indiv':null].filter(Boolean).join(', ');
+        const pkgs = [r.packages?.closing?'Closing':null,r.packages?.pal?'PAL':null,r.packages?.lender?'LQ':null,r.packages?.individual?'Indiv':null].filter(Boolean).join(', ');
         const hasRush = Object.values(r.rush||{}).some(v=>v&&v!=='none');
-        const rushTypes = Object.entries(r.rush||{}).filter(([,v])=>v&&v!=='none').map(([k,v])=>v).join(', ');
-        return `<tr class="clickable" onclick="openOv('${r.id}')" title="Click to open">
-          <td><strong>${r.address}</strong></td>
-          <td>${r.contact||r.contacts?.attorney?.name||r.email||'—'}</td>
-          <td>${pkgs||'—'}</td>
-          <td>${hasRush?`<span style="color:var(--amber);font-weight:600">⚡ ${rushTypes}</span>`:'—'}</td>
-          <td class="money"><strong>${fmt(getTotalPaid(r))}</strong></td>
-          <td><span class="badge ${cls}" style="font-size:10px">${lbl}</span></td>
-        </tr>`;
+        const rushTypes = Object.entries(r.rush||{}).filter(([,v])=>v&&v!=='none').map(([,v])=>v).join(', ');
+        return '<tr class="clickable" onclick="openOv(\'' + r.id + '\')"><td><strong>' + r.address + '</strong></td><td>' + (r.contact||r.contacts?.attorney?.name||r.email||'—') + '</td><td>' + (pkgs||'—') + '</td><td>' + (hasRush?'<span style="color:var(--amber);font-weight:600">⚡ ' + rushTypes + '</span>':'—') + '</td><td class="money"><strong>' + fmt(getTotalPaid(r)) + '</strong></td><td><span class="badge ' + cls + '" style="font-size:10px">' + lbl + '</span></td></tr>';
       }).join('')}</tbody>
     </table>`;
-
   setTimeout(() => drill.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
 }
 
@@ -5419,12 +5361,10 @@ function renderMonthlyBreakdown(paid, allR) {
   const nowMonth = new Date().getMonth();
   const fmt = n => n > 0 ? '$' + n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : '—';
 
-  // Totals row
   const totals = byMonth.reduce((acc, m) => {
-    acc.recs += m.recs.length;
-    acc.closing += m.closingRev; acc.pal += m.palRev; acc.lender += m.lenderRev;
-    acc.rush += m.rushRev; acc.doc += m.docRev; acc.tf += m.tfRev; acc.done += m.done;
-    return acc;
+    acc.recs += m.recs.length; acc.closing += m.closingRev; acc.pal += m.palRev;
+    acc.lender += m.lenderRev; acc.rush += m.rushRev; acc.doc += m.docRev;
+    acc.tf += m.tfRev; acc.done += m.done; return acc;
   }, {recs:0,closing:0,pal:0,lender:0,rush:0,doc:0,tf:0,done:0});
 
   el.innerHTML = byMonth.reverse().map(m => `
@@ -5441,8 +5381,7 @@ function renderMonthlyBreakdown(paid, allR) {
       <td>${m.done}</td>
     </tr>`).join('') +
     `<tr style="border-top:2px solid var(--border);background:var(--surface)">
-      <td><strong>Total</strong></td>
-      <td><strong>${totals.recs}</strong></td>
+      <td><strong>Total</strong></td><td><strong>${totals.recs}</strong></td>
       <td class="money"><strong>${fmt(totals.closing)}</strong></td>
       <td class="money"><strong>${fmt(totals.pal)}</strong></td>
       <td class="money"><strong>${fmt(totals.lender)}</strong></td>
@@ -5459,4 +5398,20 @@ function renderPackageTrends(paid) {
   const now = new Date();
   const thisMonth = now.getMonth();
   const lastMonth = thisMonth === 0 ? 11 : thisMonth - 1;
-  const getPkgCount = (pkg, month) => paid.filter(r => r.packages?.[pkg] && new Date(r.created||0).getMonth() === m
+  const getPkgCount = (pkg, month) => paid.filter(r => r.packages?.[pkg] && new Date(r.created||0).getMonth() === month).length;
+  ['closing','pal','lender'].forEach(pkg => {
+    const cur = getPkgCount(pkg, thisMonth);
+    const prev = getPkgCount(pkg, lastMonth);
+    const el = document.getElementById('pkg-trend-'+pkg);
+    if (!el) return;
+    if (prev === 0) { el.textContent = ''; return; }
+    const diff = cur - prev;
+    if (diff > 0) { el.textContent = '↑'+diff; el.className = 'trend-up'; }
+    else if (diff < 0) { el.textContent = '↓'+Math.abs(diff); el.className = 'trend-down'; }
+    else { el.textContent = '→'; el.className = 'trend-flat'; }
+  });
+}
+loadAll();
+</script>
+</body>
+</html>
