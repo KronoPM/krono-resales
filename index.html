@@ -608,15 +608,16 @@ select.filter:focus{outline:none}
       </div>
     </div>
 
-    <!-- Attorney — required primary contact -->
+    <!-- Attorney — required for attorney/both types, optional for lender-only -->
     <div class="form-card">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2)">Attorney / Law firm</div>
-        <span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:var(--text);color:#fff">Primary *</span>
+        <span id="atty-required-badge" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:var(--text);color:#fff">Primary *</span>
+        <span id="atty-optional-badge" style="display:none;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:var(--surface2);color:var(--text3)">Optional</span>
       </div>
       <div class="fgrid">
-        <div class="field"><label>Contact name *</label><input type="text" id="f-contact" placeholder="Attorney or firm name"></div>
-        <div class="field"><label>Primary email *</label><input type="email" id="f-email" placeholder="attorney@lawfirm.com"></div>
+        <div class="field"><label>Contact name</label><input type="text" id="f-contact" placeholder="Attorney or firm name"></div>
+        <div class="field"><label id="atty-email-label">Primary email *</label><input type="email" id="f-email" placeholder="attorney@lawfirm.com"></div>
       </div>
       <div class="fgrid" style="margin-bottom:0">
         <div class="field"><label>Secondary email</label><input type="email" id="f-email2" placeholder="second attorney if coverage needed"></div>
@@ -626,7 +627,10 @@ select.filter:focus{outline:none}
 
     <!-- Lender -->
     <div class="form-card">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2);margin-bottom:14px">Lender / Mortgage company</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text2)">Lender / Mortgage company</div>
+        <span id="lender-required-badge" style="display:none;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;background:var(--text);color:#fff">Primary *</span>
+      </div>
       <div class="fgrid">
         <div class="field"><label>Contact name</label><input type="text" id="f-lender-name" placeholder="Loan officer name"></div>
         <div class="field"><label>Primary email</label><input type="email" id="f-lender-email1" placeholder="lender@bank.com"></div>
@@ -660,7 +664,7 @@ select.filter:focus{outline:none}
       <div class="fgrid" style="margin-bottom:0">
         <div class="field"><label>Secondary email</label><input type="email" id="f-seller-email2" placeholder="backup seller email"></div>
         <div class="field"><label>Contact type</label>
-          <select id="f-ctype">
+          <select id="f-ctype" onchange="updateContactTypeUI(this.value)">
             <option value="attorney">Attorney / law firm</option>
             <option value="lender">Lender</option>
             <option value="both">Attorney + Lender</option>
@@ -988,8 +992,20 @@ select.filter:focus{outline:none}
 
   <!-- Monthly chart -->
   <div class="chart-wrap">
-    <div class="chart-title">Monthly transfer fee revenue</div>
+    <div class="chart-title">Monthly transfer fee revenue — click a bar for detail</div>
     <div class="bar-chart" id="tf-monthly-chart"></div>
+    <div id="tf-month-drill" class="month-drill"></div>
+  </div>
+
+  <!-- Monthly breakdown table -->
+  <div class="chart-wrap" style="margin-bottom:20px">
+    <div class="chart-title">Month-by-month transfer fee breakdown</div>
+    <div class="assoc-rev-table">
+      <table class="art">
+        <thead><tr><th>Month</th><th>Units</th><th>Buyer fees</th><th>Seller fees</th><th>Total</th><th>Pending</th></tr></thead>
+        <tbody id="tf-monthly-breakdown-body"></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- Split: buyer vs seller breakdown -->
@@ -1732,7 +1748,7 @@ function buildCL(req) {
       { id: 'lq-ins-check', text: 'Verify condo insurance policy is current and not expired' },
       { id: 'lq-fill', text: 'Complete all pages of the lender questionnaire thoroughly' },
       { id: 'lq-ins-attach', text: 'Attach condo insurance policy to questionnaire' },
-      { id: 'lq-send', text: 'Send completed questionnaire + insurance to lender: ' + (req.email2 || req.email || '—') },
+      { id: 'lq-send', text: 'Send completed questionnaire + insurance to lender: ' + (req.contacts?.lender?.email1 || req.contacts?.lender?.name || req.email2 || req.email || '—') },
     );
     groups.push({ title: 'Lender condo questionnaire — $200+', items: lq });
   }
@@ -1756,7 +1772,7 @@ function buildCL(req) {
   if ((req.ctype === 'both' || req.ctype === 'lender') && req.packages?.closing && req.packages?.lender) {
     groups.push({ title: 'Delivery — multiple parties', items: [
       { id: 'del-atty', text: 'Confirm closing package delivered to attorney: ' + (req.email || '—') },
-      { id: 'del-lender', text: 'Confirm lender questionnaire delivered to lender: ' + (req.email2 || '(check notes for lender email)'), info: 'Double-check correct docs go to correct party — do not swap them' },
+      { id: 'del-lender', text: 'Confirm lender questionnaire delivered to lender: ' + (req.contacts?.lender?.email1 || req.contacts?.lender?.name || req.email2 || '(check notes for lender email)'), info: 'Double-check correct docs go to correct party — do not swap them' },
     ]});
   }
 
@@ -2118,8 +2134,20 @@ function fillAssocDrop() {
 function saveReq() {
   const addr = document.getElementById('f-addr').value.trim();
   const email = document.getElementById('f-email').value.trim();
+  const ctype = document.getElementById('f-ctype').value;
+  const lenderEmail = document.getElementById('f-lender-email1').value.trim();
+
   if (!addr) { alert('Please enter an address.'); return; }
-  if (!email) { alert('Please enter a contact email.'); return; }
+
+  // Attorney email only required when contact type involves an attorney
+  // For lender-only requests, lender email is the primary contact
+  if (ctype === 'lender') {
+    if (!lenderEmail && !email) {
+      alert('Please enter a lender email (in the Lender section).'); return;
+    }
+  } else {
+    if (!email) { alert('Please enter an attorney contact email.'); return; }
+  }
 
   // Fix 2: warn if no association selected
   const assocId = document.getElementById('f-assoc').value;
@@ -2240,6 +2268,19 @@ function saveReq() {
       }
     }
   }
+}
+
+// ── Update contact form UI based on contact type ──
+function updateContactTypeUI(ctype) {
+  const isLenderOnly = ctype === 'lender';
+  const attyReq  = document.getElementById('atty-required-badge');
+  const attyOpt  = document.getElementById('atty-optional-badge');
+  const lenderBadge = document.getElementById('lender-required-badge');
+  const attyLabel = document.getElementById('atty-email-label');
+  if (attyReq)    attyReq.style.display    = isLenderOnly ? 'none'   : 'inline-block';
+  if (attyOpt)    attyOpt.style.display    = isLenderOnly ? 'inline-block' : 'none';
+  if (lenderBadge) lenderBadge.style.display = isLenderOnly ? 'inline-block' : 'none';
+  if (attyLabel)  attyLabel.textContent    = isLenderOnly ? 'Primary email' : 'Primary email *';
 }
 
 function clearForm() {
@@ -2513,6 +2554,7 @@ function editReq() {
     document.getElementById('f-notes').value = r.notes || '';
     document.getElementById('f-status').value = r.status || 'waiting';
     document.getElementById('f-ctype').value = r.ctype || 'attorney';
+    updateContactTypeUI(r.ctype || 'attorney');
     // Transfer fees
     const tf = r.transferFees || {};
     const bta = document.getElementById('f-buyer-transfer-amt'); if(bta) bta.value = tf.buyer?.amount || '';
@@ -2951,27 +2993,76 @@ function renderTransfers() {
   const avgPerUnit = withData.length ? (combinedTotal/withData.length) : 0;
   document.getElementById('tf-avg-per-unit').textContent = avgPerUnit ? '$'+Math.round(avgPerUnit).toLocaleString() : '—';
 
-  // Monthly chart
+  // Monthly chart + breakdown table
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  const monthly = Array(12).fill(0);
-  const monthlyCount = Array(12).fill(0);
+  const monthlyBuyer  = Array(12).fill(0);
+  const monthlySeller = Array(12).fill(0);
+  const monthlyCount  = Array(12).fill(0);
+  const monthlyPending= Array(12).fill(0);
+  const monthlyRecs   = Array(12).fill(null).map(()=>[]);
+
   withData.forEach(r => {
     const dateStr = r.transferFees?.buyer?.date || r.transferFees?.seller?.date || r.completedDate || r.created || '';
     if (dateStr) {
       const m = new Date(dateStr).getMonth();
-      if (!isNaN(m)) { monthly[m] += getTfTotal(r); monthlyCount[m]++; }
+      if (!isNaN(m)) {
+        monthlyBuyer[m]  += parseFloat(r.transferFees?.buyer?.amount||0);
+        monthlySeller[m] += parseFloat(r.transferFees?.seller?.amount||0);
+        monthlyCount[m]++;
+        monthlyRecs[m].push(r);
+        if (!r.transferFees?.buyer?.amount || !r.transferFees?.seller?.amount) monthlyPending[m]++;
+      }
     }
   });
+  window.tfMonthlyRecs = monthlyRecs;
+
+  const monthly = monthlyBuyer.map((b,i) => b + monthlySeller[i]);
   const maxM = Math.max(...monthly, 1);
   const nowMonth = new Date().getMonth();
-  document.getElementById('tf-monthly-chart').innerHTML = monthly.map((v,i)=>
-    `<div class="chart-bar-wrap">
-      <div class="chart-tooltip">${months[i]}: $${v.toLocaleString('en-US',{minimumFractionDigits:0})} · ${monthlyCount[i]} unit${monthlyCount[i]!==1?'s':''}</div>
+  const fmt = n => n > 0 ? '$' + n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : '—';
+
+  document.getElementById('tf-monthly-chart').innerHTML = monthly.map((v,i) =>
+    `<div class="chart-bar-wrap" onclick="drillTfMonth(${i})" style="cursor:pointer" title="Click for detail">
+      <div class="chart-tooltip">${months[i]}: ${fmt(v)} · ${monthlyCount[i]} unit${monthlyCount[i]!==1?'s':''}</div>
       <div class="bar" style="height:${Math.max(Math.round(v/maxM*100),v>0?4:0)}px;${i===nowMonth?'background:var(--blue)':''}">
         ${v>0?`<div class="bar-val">$${v>=1000?(v/1000).toFixed(1)+'k':v}</div>`:''}
       </div>
       <div class="bar-lbl" style="${i===nowMonth?'color:var(--blue);font-weight:700':''}">${months[i]}</div>
     </div>`).join('');
+
+  // Monthly breakdown table
+  const tfBreakEl = document.getElementById('tf-monthly-breakdown-body');
+  if (tfBreakEl) {
+    const activeMonths = months.map((m,i) => ({ m, i, buyer: monthlyBuyer[i], seller: monthlySeller[i], count: monthlyCount[i], pending: monthlyPending[i] }))
+      .filter(m => m.count > 0);
+
+    if (!activeMonths.length) {
+      tfBreakEl.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:20px">No transfer fee data yet</td></tr>';
+    } else {
+      const totB = monthlyBuyer.reduce((a,b)=>a+b,0);
+      const totS = monthlySeller.reduce((a,b)=>a+b,0);
+      const totC = monthlyCount.reduce((a,b)=>a+b,0);
+      const totP = monthlyPending.reduce((a,b)=>a+b,0);
+
+      tfBreakEl.innerHTML = activeMonths.reverse().map(m => `
+        <tr class="clickable" data-tf-month="${m.i}" onclick="drillTfMonth(${m.i})" title="Click for detail" style="${m.i===nowMonth?'background:var(--blue-bg)':''}">
+          <td><strong>${m.m}</strong>${m.i===nowMonth?' <span style="font-size:10px;color:var(--blue);font-weight:700">● now</span>':''}</td>
+          <td>${m.count}</td>
+          <td class="money">${fmt(m.buyer)}</td>
+          <td class="money">${fmt(m.seller)}</td>
+          <td class="money"><strong>${fmt(m.buyer+m.seller)}</strong></td>
+          <td>${m.pending>0?`<span style="color:var(--amber);font-weight:600">${m.pending} pending</span>`:'<span style="color:var(--green-mid)">✓</span>'}</td>
+        </tr>`).join('') +
+        `<tr style="border-top:2px solid var(--border);background:var(--surface)">
+          <td><strong>Total</strong></td>
+          <td><strong>${totC}</strong></td>
+          <td class="money"><strong>${fmt(totB)}</strong></td>
+          <td class="money"><strong>${fmt(totS)}</strong></td>
+          <td class="money"><strong style="color:var(--blue)">${fmt(totB+totS)}</strong></td>
+          <td>${totP>0?`<span style="color:var(--amber);font-weight:600">${totP} pending</span>`:'<span style="color:var(--green-mid)">✓ All received</span>'}</td>
+        </tr>`;
+    }
+  }
 
   // Association breakdown
   const aMap = {};
@@ -5198,6 +5289,67 @@ function renderExecSnapshot() {
 }
 
 // ── Month drill-down ──
+// ── Transfer fee monthly drill-down ──
+let drillTfMonthIdx = -1;
+function drillTfMonth(monthIdx) {
+  const drill = document.getElementById('tf-month-drill');
+  if (!drill) return;
+  if (drillTfMonthIdx === monthIdx) { drill.classList.remove('open'); drillTfMonthIdx = -1; return; }
+  drillTfMonthIdx = monthIdx;
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const recs = (window.tfMonthlyRecs || [])[monthIdx] || [];
+  if (!recs.length) { drill.classList.remove('open'); return; }
+  drill.classList.add('open');
+  const fmt = n => n > 0 ? '$' + n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) : '—';
+  const totalBuyer  = recs.reduce((s,r)=>s+parseFloat(r.transferFees?.buyer?.amount||0),0);
+  const totalSeller = recs.reduce((s,r)=>s+parseFloat(r.transferFees?.seller?.amount||0),0);
+  const pending = recs.filter(r=>!r.transferFees?.buyer?.amount||!r.transferFees?.seller?.amount).length;
+
+  drill.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em">${months[monthIdx]} — ${recs.length} unit${recs.length!==1?'s':''}</div>
+      <button class="btn btn-sm" onclick="document.getElementById('tf-month-drill').classList.remove('open');drillTfMonthIdx=-1">✕ Close</button>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:14px">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Total collected</div>
+        <div style="font-size:18px;font-weight:700;color:var(--blue)">$${(totalBuyer+totalSeller).toLocaleString('en-US',{minimumFractionDigits:2})}</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Buyer fees</div>
+        <div style="font-size:18px;font-weight:700">${fmt(totalBuyer)}</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px">
+        <div style="font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;margin-bottom:3px">Seller fees</div>
+        <div style="font-size:18px;font-weight:700">${fmt(totalSeller)}</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm);padding:10px 12px">
+        <div style="font-size:10px;font-weight:700;color:${pending>0?'var(--amber)':'var(--green-mid)'};text-transform:uppercase;margin-bottom:3px">Pending</div>
+        <div style="font-size:18px;font-weight:700;color:${pending>0?'var(--amber)':'var(--green-mid)'}">${pending > 0 ? pending : '✓ All'}</div>
+      </div>
+    </div>
+    <table class="art" style="font-size:12px">
+      <thead><tr><th>Address</th><th>Association</th><th>Buyer fee</th><th>Seller fee</th><th>Total</th><th>Status</th></tr></thead>
+      <tbody>${recs.map(r => {
+        const tf = r.transferFees || {};
+        const bPaid = !!tf.buyer?.amount;
+        const sPaid = !!tf.seller?.amount;
+        const status = bPaid && sPaid ? '<span class="badge b-done" style="font-size:10px">Both received</span>'
+          : bPaid || sPaid ? '<span class="badge b-inprogress" style="font-size:10px">Partial</span>'
+          : '<span class="badge b-waiting" style="font-size:10px">Pending</span>';
+        return `<tr class="clickable" onclick="openOv('${r.id}');go('dashboard')">
+          <td><strong>${r.address}</strong></td>
+          <td>${(A.find(a=>a.id===r.assocId)||{name:'—'}).name}</td>
+          <td class="money">${bPaid?fmt(parseFloat(tf.buyer.amount)):'<span style="color:var(--text3)">—</span>'}</td>
+          <td class="money">${sPaid?fmt(parseFloat(tf.seller.amount)):'<span style="color:var(--text3)">—</span>'}</td>
+          <td class="money"><strong>${fmt(getTfTotal(r))}</strong></td>
+          <td>${status}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  setTimeout(() => drill.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 50);
+}
+
 function drillFromTable(row) {
   const monthIdx = parseInt(row.dataset.monthIdx);
   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
