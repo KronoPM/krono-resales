@@ -236,9 +236,9 @@ select.filter:focus{outline:none}
 .rev-val{font-size:24px;font-weight:700;font-family:'Syne',sans-serif;letter-spacing:-0.03em}
 .rev-lbl{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;font-weight:600;margin-top:3px}
 .rev-sub{font-size:11px;color:var(--text3);margin-top:2px}
-.chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;box-shadow:var(--shadow);margin-bottom:16px;overflow-x:auto;min-width:0}
+.chart-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;box-shadow:var(--shadow);margin-bottom:16px;overflow-x:auto;overflow-y:visible;min-width:0}
 .chart-title{font-size:13px;font-weight:600;margin-bottom:14px;font-family:'Syne',sans-serif}
-.bar-chart{display:flex;align-items:flex-end;gap:6px;height:120px;padding-bottom:20px;position:relative;border-bottom:1px solid var(--border);overflow-x:auto;min-width:0}
+.bar-chart{display:flex;align-items:flex-end;gap:6px;height:140px;padding-bottom:20px;padding-top:24px;position:relative;border-bottom:1px solid var(--border);overflow-x:auto;overflow-y:visible;min-width:0}
 .bar-col{display:flex;flex-direction:column;align-items:center;flex:1;gap:4px;position:relative}
 .bar{width:100%;border-radius:4px 4px 0 0;background:var(--text);transition:height .4s;min-height:2px;cursor:pointer;position:relative}
 .bar:hover{opacity:.8}
@@ -540,12 +540,20 @@ select.filter:focus{outline:none}
     <select class="filter" id="yf" onchange="renderDash(document.getElementById('dash-search').value, currentFilter)">
       <option value="">All years</option>
     </select>
-    <select class="filter" id="date-range-filter" onchange="renderDash(document.getElementById('dash-search').value, currentFilter)" title="Filter completed requests by date">
-      <option value="">All time</option>
-      <option value="this-week">This week</option>
-      <option value="this-month">This month</option>
-      <option value="last-month">Last month</option>
-      <option value="last-3months">Last 3 months</option>
+    <select class="filter" id="date-range-filter" onchange="renderDash(document.getElementById('dash-search').value, currentFilter)" title="Filter completed records by time period">
+      <option value="">Completed: all time</option>
+      <option value="this-week">Completed: this week</option>
+      <option value="this-month">Completed: this month</option>
+      <option value="last-month">Completed: last month</option>
+      <option value="last-3months">Completed: last 3 months</option>
+    </select>
+    <select class="filter" id="dash-sort" onchange="renderDash(document.getElementById('dash-search').value, currentFilter)" title="Sort requests">
+      <option value="default">Sort: default</option>
+      <option value="closing-asc">Closing date ↑</option>
+      <option value="closing-desc">Closing date ↓</option>
+      <option value="created-desc">Newest first</option>
+      <option value="created-asc">Oldest first</option>
+      <option value="address-asc">Address A–Z</option>
     </select>
     <button class="btn btn-sm" id="clear-filter-btn" style="display:none" onclick="clearFilter()">✕ Clear filter</button>
   </div>
@@ -2031,7 +2039,18 @@ function renderDash(q = '', sf = '') {
   const inprogress = sortActive(list.filter(r => r.status === 'inprogress'));
   const waiting    = sortActive(list.filter(r => r.status === 'waiting'));
   const blocked    = sortActive(list.filter(r => r.status === 'blocked'));
-  const done       = list.filter(r => r.status === 'done').sort((a,b) => new Date(b.completedDate||b.created||0) - new Date(a.completedDate||a.created||0));
+
+  // Apply sort to done list
+  const dashSort = document.getElementById('dash-sort')?.value || 'default';
+  const applySort = arr => {
+    if (dashSort === 'closing-asc')   return [...arr].sort((a,b) => { if (!a.closing && !b.closing) return 0; if (!a.closing) return 1; if (!b.closing) return -1; return new Date(a.closing)-new Date(b.closing); });
+    if (dashSort === 'closing-desc')  return [...arr].sort((a,b) => { if (!a.closing && !b.closing) return 0; if (!a.closing) return 1; if (!b.closing) return -1; return new Date(b.closing)-new Date(a.closing); });
+    if (dashSort === 'created-desc')  return [...arr].sort((a,b) => new Date(b.created||0)-new Date(a.created||0));
+    if (dashSort === 'created-asc')   return [...arr].sort((a,b) => new Date(a.created||0)-new Date(b.created||0));
+    if (dashSort === 'address-asc')   return [...arr].sort((a,b) => (a.address||'').localeCompare(b.address||''));
+    return arr;
+  };
+  const done = applySort(list.filter(r => r.status === 'done').sort((a,b) => new Date(b.completedDate||b.created||0) - new Date(a.completedDate||a.created||0)));
 
   // Render in progress
   const ipEl = document.getElementById('req-list-inprogress');
@@ -2989,7 +3008,7 @@ function renderRevenue() {
     document.getElementById('monthly-chart').innerHTML = weekBuckets.map((b,i) =>
       `<div class="chart-bar-wrap" onclick="drillIntoWeek(${i})" style="cursor:pointer" title="Click to see detail">
         <div class="chart-tooltip">Wk ${b.label}: $${b.rev.toLocaleString()} · ${b.count} req</div>
-        <div class="bar" style="height:${Math.max(Math.round(b.rev/maxW*100),b.rev>0?4:0)}px">
+        <div class="bar" style="height:${Math.min(90,Math.max(Math.round(b.rev/maxW*100),b.rev>0?4:0))}px">
           ${b.rev>0?`<div class="bar-val">$${b.rev>=1000?(b.rev/1000).toFixed(1)+'k':b.rev}</div>`:''}
         </div>
         <div class="bar-lbl">${b.label}</div>
@@ -3013,8 +3032,8 @@ function renderRevenue() {
       `<div class="chart-bar-wrap" style="gap:2px">
         <div class="chart-tooltip">${m} ${nowYear}: $${curMonthly[i].toLocaleString()} | ${prevYear}: $${prevMonthly[i].toLocaleString()}</div>
         <div style="display:flex;gap:2px;align-items:flex-end;height:100px">
-          <div class="bar" style="height:${Math.max(Math.round(prevMonthly[i]/maxYoy*100),prevMonthly[i]>0?4:0)}px;background:var(--border2);width:12px;min-width:12px" title="${prevYear}"></div>
-          <div class="bar" style="height:${Math.max(Math.round(curMonthly[i]/maxYoy*100),curMonthly[i]>0?4:0)}px;background:var(--green-mid);width:12px;min-width:12px" title="${nowYear}"></div>
+          <div class="bar" style="height:${Math.min(90,Math.max(Math.round(prevMonthly[i]/maxYoy*100),prevMonthly[i]>0?4:0))}px;background:var(--border2);width:12px;min-width:12px" title="${prevYear}"></div>
+          <div class="bar" style="height:${Math.min(90,Math.max(Math.round(curMonthly[i]/maxYoy*100),curMonthly[i]>0?4:0))}px;background:var(--green-mid);width:12px;min-width:12px" title="${nowYear}"></div>
         </div>
         <div class="bar-lbl" style="${i===nowMonth?'color:var(--green-mid);font-weight:700':''}">${m}</div>
       </div>`).join('');
@@ -3046,7 +3065,7 @@ function renderRevenue() {
         <div class="chart-tooltip">${months[i]}: $${v.toLocaleString('en-US',{minimumFractionDigits:0})} · ${monthlyCount[i]} req · YTD $${ytdByMonth[i].toLocaleString()}</div>
         <div style="position:relative;width:100%;display:flex;flex-direction:column;align-items:center">
           <div style="position:absolute;bottom:${Math.round(ytdByMonth[i]/maxYtd*100)}%;left:0;right:0;height:2px;background:var(--green-mid);border-radius:2px;opacity:.7"></div>
-          <div class="bar" style="height:${Math.max(Math.round(v/maxM*100),v>0?4:0)}px;${i===nowMonth?'background:var(--green-mid)':''}${drillMonth===i?';outline:2px solid var(--blue);outline-offset:2px':''}">
+          <div class="bar" style="height:${Math.min(90,Math.max(Math.round(v/maxM*100),v>0?4:0))}px;${i===nowMonth?'background:var(--green-mid)':''}${drillMonth===i?';outline:2px solid var(--blue);outline-offset:2px':''}">
             ${v>0?`<div class="bar-val">$${v>=1000?(v/1000).toFixed(1)+'k':v}</div>`:''}
           </div>
         </div>
@@ -3182,7 +3201,7 @@ function renderTransfers() {
   document.getElementById('tf-monthly-chart').innerHTML = monthly.map((v,i) =>
     `<div class="chart-bar-wrap" onclick="drillTfMonth(${i})" style="cursor:pointer" title="Click for detail">
       <div class="chart-tooltip">${months[i]}: ${fmt(v)} · ${monthlyCount[i]} unit${monthlyCount[i]!==1?'s':''}</div>
-      <div class="bar" style="height:${Math.max(Math.round(v/maxM*100),v>0?4:0)}px;${i===nowMonth?'background:var(--blue)':''}">
+      <div class="bar" style="height:${Math.min(90,Math.max(Math.round(v/maxM*100),v>0?4:0))}px;${i===nowMonth?'background:var(--blue)':''}">
         ${v>0?`<div class="bar-val">$${v>=1000?(v/1000).toFixed(1)+'k':v}</div>`:''}
       </div>
       <div class="bar-lbl" style="${i===nowMonth?'color:var(--blue);font-weight:700':''}">${months[i]}</div>
