@@ -5541,15 +5541,16 @@ function drillTfMonth(monthIdx) {
 
 function drillFromTable(row) {
   const monthIdx = parseInt(row.dataset.monthIdx);
+  const rowYear  = row.dataset.monthYear ? parseInt(row.dataset.monthYear) : (curYear === 'all' ? new Date().getFullYear() : parseInt(curYear));
   const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  const year = curYear === 'all' ? null : parseInt(curYear);
   const reqs = R.filter(r => {
     if (getTotalPaid(r) <= 0) return false;
-    const d = new Date(r.created||0);
-    return d.getMonth() === monthIdx && (year === null || d.getFullYear() === year);
+    const revDate = Object.values(r.payments||{}).map(p=>p.date).filter(Boolean).sort()[0] || r.paydate || r.created || '';
+    const d = new Date(revDate||0);
+    return d.getMonth() === monthIdx && d.getFullYear() === rowYear;
   });
-  const label = monthNames[monthIdx] + (year ? ' ' + year : '');
-  drillIntoMonth(monthIdx, label, reqs);
+  const label = monthNames[monthIdx] + ' ' + rowYear;
+  drillIntoMonth(monthIdx * 10000 + rowYear, label, reqs);
 }
 
 function drillIntoWeek(weekIdx) {
@@ -5676,65 +5677,79 @@ function renderMonthlyBreakdown(paid, allR) {
   const el = document.getElementById('monthly-breakdown-body');
   if (!el) return;
   const year = curYear === 'all' ? null : parseInt(curYear);
-  const byMonth = months.map((m,i) => {
-    const recs = paid.filter(r => {
-      const revDate = Object.values(r.payments||{}).map(p=>p.date).filter(Boolean).sort()[0] || r.paydate || r.created || '';
-      const d = new Date(revDate||0);
-      return d.getMonth() === i && (year === null || d.getFullYear() === year);
-    });
-    const tfRecs = allR.filter(r => {
-      const revDate = Object.values(r.payments||{}).map(p=>p.date).filter(Boolean).sort()[0] || r.paydate || r.created || '';
-      const d = new Date(revDate||0);
-      return d.getMonth() === i && (year === null || d.getFullYear() === year);
-    });
-    const closingRev = recs.reduce((s,r) => s + (parseFloat(r.payments?.closing?.amount||0)), 0);
-    const palRev     = recs.reduce((s,r) => s + (parseFloat(r.payments?.pal?.amount||0)), 0);
-    const lenderRev  = recs.reduce((s,r) => s + (parseFloat(r.payments?.lender?.amount||0)), 0);
-    const rushRev    = recs.filter(r=>Object.values(r.rush||{}).some(v=>v&&v!=='none')).reduce((s,r)=>s+getTotalPaid(r),0);
-    const docRev     = recs.reduce((s,r)=>s+getTotalPaid(r),0);
-    const tfRev      = tfRecs.reduce((s,r)=>s+getTfTotal(r),0);
-    const done       = recs.filter(r=>r.status==='done').length;
-    return { m, i, recs, closingRev, palRev, lenderRev, rushRev, docRev, tfRev, done };
-  }).filter(m => m.recs.length > 0 || m.tfRev > 0);
+  const nowMonth = new Date().getMonth();
+  const nowYear  = new Date().getFullYear();
+  const fmt = n => n > 0 ? '$' + n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : '—';
+
+  // Key by YEAR-MONTH so Dec 2024 and Dec 2025 are never merged
+  const bucketMap = {};
+  const addToBucket = (r, isTf) => {
+    const revDate = Object.values(r.payments||{}).map(p=>p.date).filter(Boolean).sort()[0] || r.paydate || r.created || '';
+    const d = new Date(revDate||0);
+    const y = d.getFullYear(); const mo = d.getMonth();
+    if (year !== null && y !== year) return;
+    if (y > nowYear || (y === nowYear && mo > nowMonth)) return; // never show future
+    const key = `${y}-${String(mo).padStart(2,'0')}`;
+    if (!bucketMap[key]) bucketMap[key] = { m: months[mo], mo, y, recs:[], tfRecs:[] };
+    if (isTf) { if (!bucketMap[key].tfRecs.includes(r)) bucketMap[key].tfRecs.push(r); }
+    else bucketMap[key].recs.push(r);
+  };
+  paid.forEach(r => addToBucket(r, false));
+  allR.forEach(r => addToBucket(r, true));
+
+  const byMonth = Object.entries(bucketMap)
+    .sort(([a],[b]) => b.localeCompare(a)) // newest first
+    .map(([key, b]) => {
+      const closingRev = b.recs.reduce((s,r)=>s+parseFloat(r.payments?.closing?.amount||0),0);
+      const palRev     = b.recs.reduce((s,r)=>s+parseFloat(r.payments?.pal?.amount||0),0);
+      const lenderRev  = b.recs.reduce((s,r)=>s+parseFloat(r.payments?.lender?.amount||0),0);
+      const rushRev    = b.recs.filter(r=>Object.values(r.rush||{}).some(v=>v&&v!=='none')).reduce((s,r)=>s+getTotalPaid(r),0);
+      const docRev     = b.recs.reduce((s,r)=>s+getTotalPaid(r),0);
+      const tfRev      = b.tfRecs.reduce((s,r)=>s+getTfTotal(r),0);
+      const done       = b.recs.filter(r=>r.status==='done').length;
+      return { ...b, closingRev, palRev, lenderRev, rushRev, docRev, tfRev, done };
+    }).filter(b => b.recs.length > 0 || b.tfRev > 0);
 
   if (!byMonth.length) {
     el.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text3);padding:20px">No data yet</td></tr>';
     return;
   }
-  const nowMonth = new Date().getMonth();
-  const fmt = n => n > 0 ? '$' + n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) : '—';
 
-  const totals = byMonth.reduce((acc, m) => {
-    acc.recs += m.recs.length; acc.closing += m.closingRev; acc.pal += m.palRev;
-    acc.lender += m.lenderRev; acc.rush += m.rushRev; acc.doc += m.docRev;
-    acc.tf += m.tfRev; acc.done += m.done; return acc;
+  const totals = byMonth.reduce((acc,b) => {
+    acc.recs+=b.recs.length; acc.closing+=b.closingRev; acc.pal+=b.palRev;
+    acc.lender+=b.lenderRev; acc.rush+=b.rushRev; acc.doc+=b.docRev;
+    acc.tf+=b.tfRev; acc.done+=b.done; return acc;
   }, {recs:0,closing:0,pal:0,lender:0,rush:0,doc:0,tf:0,done:0});
 
-  el.innerHTML = byMonth.reverse().map(m => `
-    <tr style="${m.i===nowMonth?'background:var(--green-bg)':''}" class="clickable" data-month-idx="${m.i}" onclick="drillFromTable(this)" title="Click to see detail">
-      <td><strong>${m.m}${curYear==='all'?' '+new Date(m.recs[0]?.created||Date.now()).getFullYear():''}</strong>${m.i===nowMonth?' <span style="font-size:10px;color:var(--green-mid);font-weight:700">● now</span>':''}</td>
-      <td>${m.recs.length}</td>
-      <td class="money">${fmt(m.closingRev)}</td>
-      <td class="money">${fmt(m.palRev)}</td>
-      <td class="money">${fmt(m.lenderRev)}</td>
-      <td class="money" style="color:var(--amber)">${fmt(m.rushRev)}</td>
-      <td class="money"><strong>${fmt(m.docRev)}</strong></td>
-      <td class="money">${fmt(m.tfRev)}</td>
-      <td class="money"><strong style="color:var(--green-mid)">$${(m.docRev+m.tfRev).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</strong></td>
-      <td>${m.done}</td>
-    </tr>`).join('') +
-    `<tr style="border-top:2px solid var(--border);background:var(--surface)">
-      <td><strong>Total</strong></td><td><strong>${totals.recs}</strong></td>
-      <td class="money"><strong>${fmt(totals.closing)}</strong></td>
-      <td class="money"><strong>${fmt(totals.pal)}</strong></td>
-      <td class="money"><strong>${fmt(totals.lender)}</strong></td>
-      <td class="money" style="color:var(--amber)"><strong>${fmt(totals.rush)}</strong></td>
-      <td class="money"><strong>${fmt(totals.doc)}</strong></td>
-      <td class="money"><strong>${fmt(totals.tf)}</strong></td>
-      <td class="money"><strong style="color:var(--green-mid)">$${(totals.doc+totals.tf).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</strong></td>
-      <td><strong>${totals.done}</strong></td>
+  el.innerHTML = byMonth.map(b => {
+    const isNow = b.mo === nowMonth && b.y === nowYear;
+    const label = year === null ? `${b.m} '${String(b.y).slice(2)}` : b.m;
+    return `<tr style="${isNow?'background:var(--green-bg)':''}" class="clickable" data-month-idx="${b.mo}" data-month-year="${b.y}" onclick="drillFromTable(this)" title="Click to see detail">
+      <td><strong>${label}</strong>${isNow?' <span style="font-size:10px;color:var(--green-mid);font-weight:700">● now</span>':''}</td>
+      <td>${b.recs.length}</td>
+      <td class="money">${fmt(b.closingRev)}</td>
+      <td class="money">${fmt(b.palRev)}</td>
+      <td class="money">${fmt(b.lenderRev)}</td>
+      <td class="money" style="color:var(--amber)">${fmt(b.rushRev)}</td>
+      <td class="money"><strong>${fmt(b.docRev)}</strong></td>
+      <td class="money">${fmt(b.tfRev)}</td>
+      <td class="money"><strong style="color:var(--green-mid)">$${(b.docRev+b.tfRev).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</strong></td>
+      <td>${b.done}</td>
     </tr>`;
+  }).join('') +
+  `<tr style="border-top:2px solid var(--border);background:var(--surface)">
+    <td><strong>Total</strong></td><td><strong>${totals.recs}</strong></td>
+    <td class="money"><strong>${fmt(totals.closing)}</strong></td>
+    <td class="money"><strong>${fmt(totals.pal)}</strong></td>
+    <td class="money"><strong>${fmt(totals.lender)}</strong></td>
+    <td class="money" style="color:var(--amber)"><strong>${fmt(totals.rush)}</strong></td>
+    <td class="money"><strong>${fmt(totals.doc)}</strong></td>
+    <td class="money"><strong>${fmt(totals.tf)}</strong></td>
+    <td class="money"><strong style="color:var(--green-mid)">$${(totals.doc+totals.tf).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})}</strong></td>
+    <td><strong>${totals.done}</strong></td>
+  </tr>`;
 }
+
 
 // ── Package trend calculation ──
 function renderPackageTrends(paid) {
