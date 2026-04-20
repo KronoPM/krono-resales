@@ -243,7 +243,7 @@ select.filter:focus{outline:none}
 .bar{width:100%;border-radius:4px 4px 0 0;background:var(--text);transition:height .4s;min-height:2px;cursor:pointer;position:relative}
 .bar:hover{opacity:.8}
 .bar-lbl{font-size:10px;color:var(--text3);position:absolute;bottom:-18px;white-space:nowrap;font-weight:600}
-.bar-val{font-size:10px;color:var(--text2);font-weight:700;position:absolute;top:-16px;white-space:nowrap}
+.bar-val{font-size:10px;color:var(--text2);font-weight:700;position:absolute;top:-18px;white-space:nowrap;left:50%;transform:translateX(-50%);background:var(--surface);padding:1px 3px;border-radius:2px;z-index:1}
 .pkg-breakdown{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
 .pkg-rev-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;box-shadow:var(--shadow)}
 .pkg-rev-bar{height:6px;border-radius:3px;margin-top:8px;background:var(--surface3)}
@@ -531,7 +531,7 @@ select.filter:focus{outline:none}
   </div>
 
   <!-- Search bar -->
-  <div class="toolbar" style="margin-bottom:20px">
+  <div class="toolbar" style="margin-bottom:12px">
     <div style="position:relative;flex:1">
       <input class="search-input" type="text" id="dash-search" placeholder="Search address, contact, association, email…" oninput="renderDash(this.value, currentFilter);updateSearchSuggestions(this.value)" autocomplete="off" style="width:100%;padding-right:32px">
       <button id="search-clear-btn" onclick="clearDashSearch()" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:14px;color:var(--text3);padding:0;line-height:1">✕</button>
@@ -540,15 +540,39 @@ select.filter:focus{outline:none}
     <select class="filter" id="yf" onchange="renderDash(document.getElementById('dash-search').value, currentFilter)">
       <option value="">All years</option>
     </select>
+    <select class="filter" id="date-range-filter" onchange="renderDash(document.getElementById('dash-search').value, currentFilter)" title="Filter completed requests by date">
+      <option value="">All time</option>
+      <option value="this-week">This week</option>
+      <option value="this-month">This month</option>
+      <option value="last-month">Last month</option>
+      <option value="last-3months">Last 3 months</option>
+    </select>
     <button class="btn btn-sm" id="clear-filter-btn" style="display:none" onclick="clearFilter()">✕ Clear filter</button>
   </div>
 
-  <!-- Active requests -->
-  <div id="section-active">
+  <!-- In progress requests — always shown first -->
+  <div id="section-inprogress">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text3)">Active <span id="active-count" style="font-weight:400;color:var(--text3)"></span></div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--blue)">In progress <span id="inprogress-count" style="font-weight:400;color:var(--text3)"></span></div>
     </div>
-    <div id="req-list-active" class="req-list" style="margin-bottom:24px"></div>
+    <div id="req-list-inprogress" class="req-list" style="margin-bottom:20px"></div>
+  </div>
+
+  <!-- Awaiting payment — collapsed by default -->
+  <div id="section-waiting">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;cursor:pointer;user-select:none" onclick="toggleWaiting()">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text3)">Awaiting payment <span id="waiting-count" style="font-weight:400;color:var(--text3)"></span></div>
+      <span id="waiting-toggle-icon" style="font-size:12px;color:var(--text3);font-weight:600">▼ Show</span>
+    </div>
+    <div id="req-list-waiting" class="req-list" style="display:none;margin-bottom:20px"></div>
+  </div>
+
+  <!-- Blocked requests -->
+  <div id="section-blocked" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--red)">Blocked <span id="blocked-count" style="font-weight:400;color:var(--text3)"></span></div>
+    </div>
+    <div id="req-list-blocked" class="req-list" style="margin-bottom:20px"></div>
   </div>
 
   <!-- Completed requests — collapsed by default -->
@@ -601,7 +625,14 @@ select.filter:focus{outline:none}
       <div class="fsec-title">Property</div>
       <div class="fgrid">
         <div class="field"><label>Address / unit *</label><input type="text" id="f-addr" placeholder="e.g. 1129 Claremont, Unit 3B" oninput="autoMatchAssoc()"></div>
-        <div class="field"><label>Association</label><select id="f-assoc"><option value="">— Select association —</option></select></div>
+        <div class="field">
+          <label>Association</label>
+          <div style="position:relative">
+            <input type="text" id="f-assoc-search" placeholder="Type to search association…" autocomplete="off" oninput="filterAssocList(this.value)" onfocus="showAssocDropdown()" style="width:100%" onblur="setTimeout(hideAssocDropdown,200)">
+            <input type="hidden" id="f-assoc" value="">
+            <div id="assoc-dropdown" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r-sm);box-shadow:0 4px 12px rgba(0,0,0,.1);z-index:200;max-height:180px;overflow-y:auto"></div>
+          </div>
+        </div>
       </div>
       <div id="assoc-auto-banner" style="display:none;margin-top:-8px;margin-bottom:10px;padding:8px 12px;background:var(--green-bg);border:1px solid #6EE7B7;border-radius:var(--r-sm);font-size:12.5px;color:var(--green);display:flex;align-items:center;gap:8px">
         <span>✓</span><span id="assoc-auto-msg"></span>
@@ -1909,9 +1940,10 @@ function cardHTML(r) {
 
 function renderDash(q = '', sf = '') {
   const yf = document.getElementById('yf')?.value || '';
+  const dateRange = document.getElementById('date-range-filter')?.value || '';
   let list = [...R];
 
-  // Apply filters
+  // Search filter
   if (q) {
     const lq = q.toLowerCase();
     list = list.filter(r => {
@@ -1933,14 +1965,34 @@ function renderDash(q = '', sf = '') {
   if (sf) list = list.filter(r => r.status === sf);
   if (yf) list = list.filter(r => (r.created||'').startsWith(yf));
 
-  // Today view — requests with something due today or active rush
+  // Date range filter (applies to completed records)
+  if (dateRange) {
+    const now = new Date(); now.setHours(23,59,59);
+    const cutoffs = {
+      'this-week': new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay()),
+      'this-month': new Date(now.getFullYear(), now.getMonth(), 1),
+      'last-month': new Date(now.getFullYear(), now.getMonth()-1, 1),
+      'last-3months': new Date(now.getFullYear(), now.getMonth()-3, 1),
+    };
+    const cutoff = cutoffs[dateRange];
+    const endOfLastMonth = dateRange === 'last-month' ? new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59) : now;
+    if (cutoff) {
+      list = list.filter(r => {
+        if (r.status !== 'done') return true; // always show active
+        const d = new Date(r.completedDate || r.created || 0);
+        return d >= cutoff && d <= endOfLastMonth;
+      });
+    }
+  }
+
+  // Today view
   if (todayViewActive) {
     const today = new Date(); today.setHours(0,0,0,0);
     list = list.filter(r => {
       if (r.status === 'done') return false;
       return ['closing','pal','lender','individual'].some(pkg => {
         if (!r.packages?.[pkg]) return false;
-        const pd = r.payments?.[pkg]?.date || r.paydate;
+        const pd = r.payments?.[pkg]?.date;
         if (!pd) return false;
         const limit = (r.rush?.[pkg]==='1day')?1:(r.rush?.[pkg]==='3day')?3:10;
         const due = addBusinessDays(pd, limit);
@@ -1950,22 +2002,23 @@ function renderDash(q = '', sf = '') {
     });
   }
 
-  // Sort active: 1-day rush first, 3-day rush second, then overdue, then by closing date
-  const active = list.filter(r => r.status !== 'done').sort((a,b) => {
-    const rushRank = req => {
-      const vals = Object.values(req.rush||{});
-      if (vals.includes('1day')) return 0;
-      if (vals.includes('3day')) return 1;
-      const hasOverdue = ['closing','pal','lender','individual'].some(pkg => {
-        if (!req.packages?.[pkg]) return false;
-        const pd = req.payments?.[pkg]?.date || req.paydate;
-        if (!pd) return false;
-        const limit = (req.rush?.[pkg]==='1day')?1:(req.rush?.[pkg]==='3day')?3:10;
-        return businessDaysSince(pd) >= limit;
-      });
-      if (hasOverdue) return 2;
-      return 3;
-    };
+  // Sort helper: rush + overdue rank
+  const rushRank = req => {
+    const vals = Object.values(req.rush||{});
+    if (vals.includes('1day')) return 0;
+    if (vals.includes('3day')) return 1;
+    const hasOverdue = ['closing','pal','lender','individual'].some(pkg => {
+      if (!req.packages?.[pkg]) return false;
+      const pd = req.payments?.[pkg]?.date;
+      if (!pd) return false;
+      const limit = (req.rush?.[pkg]==='1day')?1:(req.rush?.[pkg]==='3day')?3:10;
+      return businessDaysSince(pd) >= limit;
+    });
+    if (hasOverdue) return 2;
+    return 3;
+  };
+
+  const sortActive = arr => arr.sort((a,b) => {
     const ra = rushRank(a), rb = rushRank(b);
     if (ra !== rb) return ra - rb;
     if (a.closing && b.closing) return new Date(a.closing) - new Date(b.closing);
@@ -1973,31 +2026,54 @@ function renderDash(q = '', sf = '') {
     if (b.closing) return 1;
     return new Date(b.created||0) - new Date(a.created||0);
   });
-  const done = list.filter(r => r.status === 'done').sort((a,b) => new Date(b.completedDate||b.created||0) - new Date(a.completedDate||a.created||0));
 
-  // Render active
-  const activeEl = document.getElementById('req-list-active');
-  const activeCount = document.getElementById('active-count');
-  if (activeCount) activeCount.textContent = `(${active.length})`;
-  if (!active.length) {
-    activeEl.innerHTML = `<div class="empty" style="padding:28px 0"><div class="empty-icon" style="font-size:24px">✓</div><p>${R.length ? 'No active requests matching your filter.' : 'No requests yet — click "+ New request" to add one.'}</p></div>`;
-  } else {
-    activeEl.innerHTML = active.map(r => cardHTML(r)).join('');
-  }
+  // Separate by status — inprogress always shown first
+  const inprogress = sortActive(list.filter(r => r.status === 'inprogress'));
+  const waiting    = sortActive(list.filter(r => r.status === 'waiting'));
+  const blocked    = sortActive(list.filter(r => r.status === 'blocked'));
+  const done       = list.filter(r => r.status === 'done').sort((a,b) => new Date(b.completedDate||b.created||0) - new Date(a.completedDate||a.created||0));
+
+  // Render in progress
+  const ipEl = document.getElementById('req-list-inprogress');
+  const ipCount = document.getElementById('inprogress-count');
+  const ipSection = document.getElementById('section-inprogress');
+  if (ipCount) ipCount.textContent = `(${inprogress.length})`;
+  if (ipSection) ipSection.style.display = (inprogress.length || !sf) ? 'block' : 'none';
+  if (ipEl) ipEl.innerHTML = inprogress.length ? inprogress.map(r => cardHTML(r)).join('') :
+    '<div class="empty" style="padding:16px 0"><p style="color:var(--text3)">No requests in progress.</p></div>';
+
+  // Render waiting (collapsed by default)
+  const wEl = document.getElementById('req-list-waiting');
+  const wCount = document.getElementById('waiting-count');
+  const wSection = document.getElementById('section-waiting');
+  if (wCount) wCount.textContent = `(${waiting.length})`;
+  if (wSection) wSection.style.display = (!sf || sf === 'waiting') ? 'block' : 'none';
+  if (wEl) wEl.innerHTML = waiting.length ? waiting.map(r => cardHTML(r)).join('') :
+    '<div class="empty" style="padding:12px 0"><p style="color:var(--text3)">No requests awaiting payment.</p></div>';
+
+  // Render blocked
+  const blEl = document.getElementById('req-list-blocked');
+  const blCount = document.getElementById('blocked-count');
+  const blSection = document.getElementById('section-blocked');
+  if (blCount) blCount.textContent = `(${blocked.length})`;
+  if (blSection) blSection.style.display = blocked.length ? 'block' : 'none';
+  if (blEl) blEl.innerHTML = blocked.length ? blocked.map(r => cardHTML(r)).join('') : '';
 
   // Render completed
   const doneEl = document.getElementById('req-list-done');
   const doneCount = document.getElementById('done-count');
-  if (doneCount) doneCount.textContent = `(${done.length})`;
-  doneEl.innerHTML = done.length ? done.map(r => cardHTML(r)).join('') : `<div class="empty" style="padding:20px 0"><p>No completed requests.</p></div>`;
-
-  // Hide completed section if filtering by non-done status
   const doneSection = document.getElementById('section-done');
-  if (sf && sf !== 'done') {
-    doneSection.style.display = 'none';
-  } else {
-    doneSection.style.display = 'block';
-  }
+  if (doneCount) doneCount.textContent = `(${done.length})`;
+  if (doneSection) doneSection.style.display = (!sf || sf === 'done') ? 'block' : 'none';
+  if (doneEl) doneEl.innerHTML = done.length ? done.map(r => cardHTML(r)).join('') :
+    '<div class="empty" style="padding:20px 0"><p>No completed requests.</p></div>';
+}
+
+let waitingVisible = false;
+function toggleWaiting() {
+  waitingVisible = !waitingVisible;
+  document.getElementById('req-list-waiting').style.display = waitingVisible ? 'block' : 'none';
+  document.getElementById('waiting-toggle-icon').textContent = waitingVisible ? '▲ Hide' : '▼ Show';
 }
 
 function clearDashSearch() {
@@ -2016,46 +2092,60 @@ function updateSearchSuggestions(q) {
   if (!sugBox) return;
   if (!q || q.length < 2) { sugBox.style.display = 'none'; return; }
   const lq = q.toLowerCase();
-  const seen = new Set(); const unique = [];
+
+  // Build suggestions: addresses and contacts
+  const seen = new Set();
+  const suggestions = [];
   R.forEach(r => {
+    const c = r.contacts || {};
+    const assocName = (A.find(a=>a.id===r.assocId)||{}).name||'';
     const candidates = [
-      { label: r.address, type: 'address' },
-      r.contact ? { label: r.contact, type: 'contact' } : null,
-      r.contacts?.attorney?.name ? { label: r.contacts.attorney.name, type: 'attorney' } : null,
-      (A.find(a=>a.id===r.assocId)||{}).name ? { label: (A.find(a=>a.id===r.assocId)||{}).name, type: 'association' } : null,
+      { label: r.address, type: 'address', id: r.id },
+      r.contact ? { label: r.contact, type: 'contact', id: r.id } : null,
+      c.attorney?.name ? { label: c.attorney.name, type: 'attorney', id: r.id } : null,
+      assocName ? { label: assocName, type: 'association', id: null } : null,
     ].filter(Boolean);
-    candidates.forEach(c => {
-      if (c.label && c.label.toLowerCase().includes(lq) && !seen.has(c.label)) {
-        seen.add(c.label); unique.push(c);
+    candidates.forEach(s => {
+      if (s.label && s.label.toLowerCase().includes(lq) && !seen.has(s.label)) {
+        seen.add(s.label); suggestions.push(s);
       }
     });
   });
-  if (!unique.length) { sugBox.style.display = 'none'; return; }
+
+  if (!suggestions.length) { sugBox.style.display = 'none'; return; }
   sugBox.style.display = 'block';
-  sugBox.innerHTML = unique.slice(0,8).map(s => {
-    const div = document.createElement('div');
-    div.style.cssText = 'padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px';
-    div.dataset.val = s.label;
-    div.innerHTML = `<span style='font-size:10px;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:3px;white-space:nowrap'>${s.type}</span><span style='margin-left:4px'>${s.label}</span>`;
-    div.addEventListener('mouseover', ()=>div.style.background='var(--surface2)');
-    div.addEventListener('mouseout', ()=>div.style.background='');
-    div.addEventListener('click', ()=>selectSearchSuggestion(s.label));
-    return div.outerHTML;
+  sugBox.innerHTML = suggestions.slice(0,8).map(s => {
+    const canOpen = s.type === 'address' || s.type === 'contact' || s.type === 'attorney';
+    return `<div onclick="selectSearchSuggestion('${s.label.replace(/'/g,"\\'")}','${s.id||''}')" 
+      style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px"
+      onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <span style="font-size:10px;color:var(--text3);background:var(--surface2);padding:1px 5px;border-radius:3px;white-space:nowrap">${s.type}</span>
+      <span style="flex:1">${s.label}</span>
+      ${canOpen&&s.id?'<span style="font-size:10px;color:var(--text3)">click to open →</span>':''}
+    </div>`;
   }).join('');
 }
 
-function selectSearchSuggestion(value) {
+function selectSearchSuggestion(value, reqId) {
+  const sugBox = document.getElementById('search-suggestions');
+  if (sugBox) sugBox.style.display = 'none';
+  // If we have a specific request ID, open it directly
+  if (reqId) {
+    openOv(reqId);
+    return;
+  }
+  // Otherwise filter the list
   const inp = document.getElementById('dash-search');
   if (inp) { inp.value = value; renderDash(value, currentFilter); }
   const cb = document.getElementById('search-clear-btn');
   if (cb) cb.style.display = 'block';
-  const sb = document.getElementById('search-suggestions');
-  if (sb) sb.style.display = 'none';
 }
 
 document.addEventListener('click', e => {
   const sug = document.getElementById('search-suggestions');
   if (sug && !sug.contains(e.target) && e.target.id !== 'dash-search') sug.style.display = 'none';
+  const assocDrop = document.getElementById('assoc-dropdown');
+  if (assocDrop && !assocDrop.contains(e.target) && e.target.id !== 'f-assoc-search') assocDrop.style.display = 'none';
 });
 
 function toggleCompleted() {
@@ -2125,10 +2215,74 @@ function populateYearFilter() {
 
 // ── New request ──
 function fillAssocDrop() {
-  const s = document.getElementById('f-assoc');
-  const v = s.value;
-  s.innerHTML = '<option value="">— Select association —</option>' + A.map(a => `<option value="${a.id}">${a.name}</option>`).join('');
-  s.value = v;
+  // For backward compat — now handled by searchable assoc
+  renderAssocDropdown('');
+}
+
+function renderAssocDropdown(q) {
+  const dropdown = document.getElementById('assoc-dropdown');
+  if (!dropdown) return;
+  const lq = (q||'').toLowerCase();
+  const matches = A.filter(a => !lq || (a.name||'').toLowerCase().includes(lq));
+  if (!matches.length) { dropdown.style.display = 'none'; return; }
+  dropdown.style.display = 'block';
+  dropdown.innerHTML = `<div onclick="selectAssoc('','')" style="padding:7px 12px;cursor:pointer;font-size:13px;color:var(--text3);border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">— No association —</div>` +
+    matches.map(a => {
+      const flags = [a.rfr?'RFR':null,a.interview?'Interview':null,a.boardApproval?'Board':null].filter(Boolean).join(', ');
+      return `<div onclick="selectAssoc('${a.id}','${a.name.replace(/'/g,"\\'")}${flags?' · '+flags:''}')" 
+        style="padding:7px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center"
+        onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+        <span>${a.name}</span>
+        ${flags?`<span style="font-size:10px;color:var(--purple);font-weight:600">${flags}</span>`:''}
+      </div>`;
+    }).join('');
+}
+
+function showAssocDropdown() {
+  renderAssocDropdown(document.getElementById('f-assoc-search')?.value||'');
+}
+
+function hideAssocDropdown() {
+  const dd = document.getElementById('assoc-dropdown');
+  if (dd) dd.style.display = 'none';
+}
+
+function filterAssocList(q) {
+  renderAssocDropdown(q);
+  // Clear hidden value if user types something new
+  const hidden = document.getElementById('f-assoc');
+  if (hidden) hidden.value = '';
+}
+
+function selectAssoc(id, name) {
+  const inp = document.getElementById('f-assoc-search');
+  const hidden = document.getElementById('f-assoc');
+  if (inp) inp.value = name || '';
+  if (hidden) hidden.value = id || '';
+  hideAssocDropdown();
+  // Trigger auto-match banner
+  autoMatchAssoc();
+  // RFR/interview notification
+  if (id) {
+    const assoc = A.find(a => a.id === id);
+    if (assoc) {
+      const flags = [];
+      if (assoc.rfr) flags.push('⊞ Has RIGHT OF FIRST REFUSAL — board notification required after payment');
+      if (assoc.interview) flags.push('👤 Requires BUYER INTERVIEW — schedule after payment received');
+      if (assoc.boardApproval) flags.push('📋 Requires BOARD APPROVAL');
+      if (flags.length) {
+        const banner = document.getElementById('assoc-auto-banner');
+        const msg = document.getElementById('assoc-auto-msg');
+        if (banner && msg) {
+          banner.style.display = 'flex';
+          banner.style.background = 'var(--purple-bg)';
+          banner.style.borderColor = 'var(--purple)';
+          msg.style.color = 'var(--purple)';
+          msg.textContent = flags.join(' · ');
+        }
+      }
+    }
+  }
 }
 
 function saveReq() {
@@ -2293,6 +2447,8 @@ function clearForm() {
    'f-buyer-transfer-amt','f-buyer-transfer-date','f-seller-transfer-amt','f-seller-transfer-date'
   ].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
   document.getElementById('f-assoc').value = '';
+  const assocSearch = document.getElementById('f-assoc-search');
+  if (assocSearch) assocSearch.value = '';
   document.getElementById('f-status').value = 'waiting';
   document.getElementById('f-ctype').value = 'attorney';
   // Reset save button
@@ -2562,8 +2718,10 @@ function editReq() {
     const sta = document.getElementById('f-seller-transfer-amt'); if(sta) sta.value = tf.seller?.amount || '';
     const std = document.getElementById('f-seller-transfer-date'); if(std) std.value = tf.seller?.date || '';
     // Association
-    fillAssocDrop();
     document.getElementById('f-assoc').value = r.assocId || '';
+    const assocForEdit = A.find(a => a.id === r.assocId);
+    const assocSearchEl = document.getElementById('f-assoc-search');
+    if (assocSearchEl) assocSearchEl.value = assocForEdit ? assocForEdit.name : '';
     // Packages
     ['closing','pal','lender','individual'].forEach(k => {
       const on = !!(r.packages && r.packages[k]);
@@ -3613,8 +3771,8 @@ function goStep(n) {
 
 function renderReviewSummary() {
   const addr = document.getElementById('f-addr')?.value || '—';
-  const assocEl = document.getElementById('f-assoc');
-  const assocName = assocEl?.options[assocEl.selectedIndex]?.text || 'None selected';
+  const assocId = document.getElementById('f-assoc')?.value || '';
+  const assocName = (A.find(a=>a.id===assocId)||{}).name || document.getElementById('f-assoc-search')?.value || 'None selected';
   const contact = document.getElementById('f-contact')?.value || '—';
   const email = document.getElementById('f-email')?.value || '—';
   const closing = document.getElementById('f-closing')?.value || '—';
@@ -4612,20 +4770,22 @@ function matchAssocByAddress(addr) {
 
 function autoMatchAssoc() {
   const addr = document.getElementById('f-addr')?.value || '';
-  const assocSel = document.getElementById('f-assoc');
+  const assocHidden = document.getElementById('f-assoc');
+  const assocSearch = document.getElementById('f-assoc-search');
   const banner = document.getElementById('assoc-auto-banner');
   const msg = document.getElementById('assoc-auto-msg');
-  if (!addr || !assocSel || !banner) return;
+  if (!addr || !banner) return;
   // Only auto-assign if user hasn't already picked one
-  if (assocSel.value) { banner.style.display = 'none'; return; }
+  if (assocHidden?.value) { banner.style.display = 'none'; return; }
   const match = matchAssocByAddress(addr);
   if (match) {
-    assocSel.value = match.id;
-    msg.textContent = 'Auto-assigned to ' + match.name + ' based on address range';
-    banner.style.display = 'flex';
+    if (assocHidden) assocHidden.value = match.id;
+    if (assocSearch) assocSearch.value = match.name;
+    if (msg) msg.textContent = 'Auto-assigned to ' + match.name + ' based on address range';
+    if (banner) banner.style.display = 'flex';
     showToast('Association auto-assigned: ' + match.name);
   } else {
-    banner.style.display = 'none';
+    if (banner) banner.style.display = 'none';
   }
 }
 
