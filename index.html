@@ -1595,7 +1595,9 @@ const PKG_LABELS = { closing: 'Closing package', pal: 'Paid assessment letter (P
 
 function getTotalPaid(r) {
   if (r.payments) {
-    return Object.values(r.payments).reduce((s, p) => s + parseFloat(p?.amount || 0), 0);
+    const fromPayments = Object.values(r.payments).reduce((s, p) => s + parseFloat(p?.amount || 0), 0);
+    // If payments object exists but all amounts are empty, fall back to legacy r.amount
+    if (fromPayments > 0) return fromPayments;
   }
   return parseFloat(r.amount || 0);
 }
@@ -2940,13 +2942,20 @@ function renderAssocs(q = '') {
 
 // ── Revenue ──
 function renderRevenue() {
+  // Revenue date = earliest payment date received, fallback to created date
+  // This ensures January revenue shows requests PAID in January, not just logged in January
+  const getRevDate = r => {
+    const dates = Object.values(r.payments||{}).map(p=>p.date).filter(Boolean).sort();
+    return dates[0] || r.paydate || r.created || '';
+  };
+
   const allPaid = R.filter(r => getTotalPaid(r) > 0);
-  const years = [...new Set(allPaid.map(r=>(r.created||'').substring(0,4)).filter(Boolean))].sort().reverse();
+  const years = [...new Set(allPaid.map(r=>getRevDate(r).substring(0,4)).filter(Boolean))].sort().reverse();
   const tabEl = document.getElementById('year-tabs');
   tabEl.innerHTML = `<div class="year-tab ${curYear==='all'?'on':''}" onclick="setYear('all')">All time</div>` + years.map(y => `<div class="year-tab ${curYear===y?'on':''}" onclick="setYear('${y}')">${y}</div>`).join('');
-  const done = R.filter(r => r.status === 'done' && (curYear === 'all' || (r.created||'').startsWith(curYear)));
-  const paid = allPaid.filter(r => curYear === 'all' || (r.created||'').startsWith(curYear));
-  const allFiltered = R.filter(r => curYear === 'all' || (r.created||'').startsWith(curYear));
+  const done = R.filter(r => r.status === 'done' && (curYear === 'all' || getRevDate(r).startsWith(curYear)));
+  const paid = allPaid.filter(r => curYear === 'all' || getRevDate(r).startsWith(curYear));
+  const allFiltered = R.filter(r => curYear === 'all' || getRevDate(r).startsWith(curYear));
   const total = paid.reduce((s,r)=>s+getTotalPaid(r),0);
   const tfTotal = allFiltered.reduce((s,r)=>s+getTfTotal(r),0);
   const grandTotal = total + tfTotal;
@@ -3048,7 +3057,8 @@ function renderRevenue() {
     const monthlyCount = Array(12).fill(0);
     const monthlyRecs = Array(12).fill(null).map(()=>[]);
     paid.forEach(r => {
-      const m = new Date(r.created||Date.now()).getMonth();
+      const revDate = Object.values(r.payments||{}).map(p=>p.date).filter(Boolean).sort()[0] || r.paydate || r.created || '';
+      const m = revDate ? new Date(revDate).getMonth() : new Date(r.created||Date.now()).getMonth();
       monthly[m] += getTotalPaid(r);
       monthlyCount[m]++;
       monthlyRecs[m].push(r);
@@ -5668,11 +5678,13 @@ function renderMonthlyBreakdown(paid, allR) {
   const year = curYear === 'all' ? null : parseInt(curYear);
   const byMonth = months.map((m,i) => {
     const recs = paid.filter(r => {
-      const d = new Date(r.created||0);
+      const revDate = Object.values(r.payments||{}).map(p=>p.date).filter(Boolean).sort()[0] || r.paydate || r.created || '';
+      const d = new Date(revDate||0);
       return d.getMonth() === i && (year === null || d.getFullYear() === year);
     });
     const tfRecs = allR.filter(r => {
-      const d = new Date(r.created||0);
+      const revDate = Object.values(r.payments||{}).map(p=>p.date).filter(Boolean).sort()[0] || r.paydate || r.created || '';
+      const d = new Date(revDate||0);
       return d.getMonth() === i && (year === null || d.getFullYear() === year);
     });
     const closingRev = recs.reduce((s,r) => s + (parseFloat(r.payments?.closing?.amount||0)), 0);
